@@ -1,0 +1,2450 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="品酒筆記">
+<meta name="theme-color" content="#1a1412">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>品酒筆記</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html {
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
+  scroll-padding-top: 4rem;
+}
+body {
+  min-height: 100dvh;
+  line-height: 1.6;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+  font-size: 15px;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+input, button, textarea, select { font: inherit; color: inherit; }
+img, svg { display: block; max-width: 100%; height: auto; }
+button { cursor: pointer; background: none; border: none; }
+ul, ol { list-style: none; }
+
+/* ===== WINE-THEMED DARK PALETTE ===== */
+:root {
+  --bg: #1a1412;
+  --surface: #221c19;
+  --surface-2: #2a2320;
+  --surface-3: #332b27;
+  --border: #3d3430;
+  --border-light: #4a3f3a;
+  --text: #e8e0d8;
+  --text-muted: #9a8e84;
+  --text-faint: #6a5f56;
+  --accent: #c4834a;
+  --accent-hover: #d4944f;
+  --accent-glow: rgba(196, 131, 74, 0.15);
+  --wine-red: #8b3a4a;
+  --wine-red-light: #a85060;
+  --gold: #d4a54a;
+  --green: #5a9a5a;
+  --green-light: #6ab06a;
+  --danger: #c45050;
+  --danger-hover: #d46060;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.5);
+
+  --transition: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ===== LAYOUT ===== */
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+  padding-bottom: calc(72px + var(--safe-bottom));
+  min-height: 100dvh;
+}
+
+/* ===== HEADER ===== */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(26, 20, 18, 0.88);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid var(--border);
+  padding: calc(var(--safe-top) + 8px) 16px 8px;
+}
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.logo svg { flex-shrink: 0; }
+.logo-text {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+}
+.sync-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background var(--transition);
+}
+.sync-dot.connected { background: var(--green-light); }
+.sync-dot.syncing { background: var(--gold); animation: pulse 1s infinite; }
+.sync-dot.error { background: var(--danger); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ===== BOTTOM NAV ===== */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(26, 20, 18, 0.92);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bottom);
+}
+.nav-inner {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-around;
+  padding: 6px 0 4px;
+}
+.nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px;
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: color var(--transition);
+  border-radius: var(--radius-md);
+  position: relative;
+}
+.nav-btn.active { color: var(--accent); }
+.nav-btn svg { width: 22px; height: 22px; }
+
+/* ===== VIEWS ===== */
+.view { display: none; padding: 12px 16px; }
+.view.active { display: block; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ===== SEARCH BAR ===== */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  transition: border-color var(--transition);
+}
+.search-bar:focus-within { border-color: var(--accent); }
+.search-bar svg { color: var(--text-faint); flex-shrink: 0; width: 18px; height: 18px; }
+.search-bar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  color: var(--text);
+}
+.search-bar input::placeholder { color: var(--text-faint); }
+
+/* ===== FILTER CHIPS ===== */
+.filter-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.sort-select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  outline: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+}
+.sort-select option { background: var(--surface); }
+
+/* ===== WINE CARDS ===== */
+.wine-list { display: flex; flex-direction: column; gap: 10px; padding-bottom: 16px; }
+
+.wine-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  transition: all var(--transition);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.wine-card:active { transform: scale(0.985); background: var(--surface-2); }
+.wine-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.wine-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  flex: 1;
+  color: var(--text);
+}
+.wine-card-fav {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  font-size: 16px;
+  padding: 2px;
+}
+.wine-card-fav.active { color: var(--danger); }
+.wine-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--wine-red);
+  color: #eee;
+}
+.type-badge.whisky { background: #8a6530; }
+.type-badge.white-wine { background: #7a8a40; }
+.type-badge.champagne { background: #9a7a30; }
+.type-badge.sake { background: #5a6a7a; }
+.type-badge.gin { background: #4a7a6a; }
+.type-badge.rum { background: #7a5a3a; }
+.type-badge.tequila { background: #6a7a3a; }
+.type-badge.cognac { background: #8a5a4a; }
+.type-badge.beer { background: #8a7a20; }
+.type-badge.cocktail { background: #6a4a7a; }
+.type-badge.other { background: #5a5a5a; }
+
+.wine-card-date {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.wine-card-rating {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.star { color: var(--text-faint); font-size: 13px; }
+.star.filled { color: var(--gold); }
+.interest-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+}
+.interest-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--border-light);
+}
+.interest-dot.filled { background: var(--green-light); }
+.wine-card-notes {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wine-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.wine-card-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-faint);
+}
+.wine-card-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-3);
+}
+
+/* ===== EMPTY STATE ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+.empty-state svg { width: 64px; height: 64px; color: var(--text-faint); margin-bottom: 16px; opacity: 0.5; }
+.empty-state h3 { font-size: 17px; color: var(--text); margin-bottom: 6px; }
+.empty-state p { font-size: 14px; margin-bottom: 20px; }
+
+/* ===== MODAL / SHEET ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeInBg 0.2s ease;
+}
+.modal-overlay.active { display: flex; }
+@keyframes fadeInBg { from { opacity: 0; } }
+
+.modal-sheet {
+  width: 100%;
+  max-width: 600px;
+  max-height: 92dvh;
+  background: var(--surface);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  padding-bottom: calc(16px + var(--safe-bottom));
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  padding: 16px 16px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.modal-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+}
+.modal-close {
+  width: 32px; height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 18px;
+}
+.modal-body { padding: 16px; }
+
+/* ===== FORM ELEMENTS ===== */
+.form-group {
+  margin-bottom: 14px;
+}
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 15px;
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.form-input:focus { border-color: var(--accent); }
+.form-input::placeholder { color: var(--text-faint); }
+textarea.form-input { resize: vertical; min-height: 80px; }
+select.form-input { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236a5f56' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ===== RATING INPUT ===== */
+.rating-input {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.rating-input .star-btn {
+  font-size: 22px;
+  color: var(--border-light);
+  padding: 2px;
+  transition: color var(--transition), transform 0.15s ease;
+}
+.rating-input .star-btn.filled { color: var(--gold); }
+.rating-input .star-btn:active { transform: scale(1.2); }
+.rating-value {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: 6px;
+  min-width: 24px;
+}
+
+/* ===== INTEREST INPUT ===== */
+.interest-input {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.interest-input .dot-btn {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--border-light);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.interest-input .dot-btn.filled { background: var(--green-light); }
+.interest-input .dot-btn:active { transform: scale(1.15); }
+
+/* ===== OCR PROGRESS ===== */
+.ocr-progress {
+  margin-top: 8px;
+  display: none;
+}
+.ocr-progress.active { display: block; }
+.ocr-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ocr-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--gold));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+.ocr-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.ocr-text-preview {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  max-height: 60px;
+  overflow-y: auto;
+  line-height: 1.4;
+  display: none;
+  word-break: break-all;
+}
+.ocr-text-preview.active { display: block; }
+
+/* ===== PHOTO AREA ===== */
+.photo-area {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.photo-preview {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  border: 1px dashed var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+}
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-preview svg { color: var(--text-faint); }
+.photo-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:active { background: var(--accent-hover); transform: scale(0.97); }
+.btn-secondary {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:active { background: var(--border); }
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:active { background: var(--danger-hover); }
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+.btn-block { width: 100%; }
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  padding: 6px 10px;
+}
+
+/* ===== FAB GROUP ===== */
+.fab-group {
+  position: fixed;
+  bottom: calc(76px + var(--safe-bottom));
+  right: 16px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 10px;
+}
+.fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow);
+  transition: all var(--transition);
+}
+.fab:active { transform: scale(0.9); }
+.fab svg { width: 24px; height: 24px; }
+.fab-secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.8);
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fab-group.open .fab-secondary {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.fab-secondary-label {
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+.fab-mini {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  flex-shrink: 0;
+}
+.fab-mini svg { width: 20px; height: 20px; }
+.fab-mini.import-btn { background: var(--wine-red); }
+.fab-mini.add-btn { background: var(--green); }
+.fab-group.open .fab > svg { transform: rotate(45deg); }
+.fab > svg { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.fab-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 89;
+  background: rgba(0,0,0,0.3);
+}
+.fab-backdrop.active { display: block; }
+
+/* ===== STATS ===== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ===== CHART ===== */
+.type-chart { margin-bottom: 16px; }
+.chart-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.chart-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 70px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.chart-bar-bg {
+  flex: 1;
+  height: 20px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.chart-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 2px;
+}
+.chart-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  width: 24px;
+  text-align: right;
+}
+
+/* ===== SETTINGS / TOOLS ===== */
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 12px 14px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.settings-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.settings-item:last-child { border-bottom: none; }
+.settings-item:active { background: var(--surface-2); }
+.settings-item svg { width: 20px; height: 20px; color: var(--text-muted); flex-shrink: 0; }
+.settings-item-text { flex: 1; }
+.settings-item-title { font-size: 14px; font-weight: 500; }
+.settings-item-desc { font-size: 12px; color: var(--text-faint); }
+.settings-item .chevron { color: var(--text-faint); }
+
+/* ===== TOGGLE ===== */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.toggle-track {
+  width: 44px; height: 24px;
+  border-radius: 12px;
+  background: var(--border-light);
+  position: relative;
+  transition: background var(--transition);
+}
+.toggle-track.active { background: var(--accent); }
+.toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--transition);
+}
+.toggle-track.active .toggle-thumb { transform: translateX(20px); }
+
+/* ===== QUICK IMPORT TEXTAREA ===== */
+.import-area {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: monospace;
+  min-height: 200px;
+  resize: vertical;
+  outline: none;
+}
+.import-area:focus { border-color: var(--accent); }
+
+/* ===== CONFIRM DIALOG ===== */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.confirm-overlay.active { display: flex; }
+.confirm-box {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 340px;
+  width: 100%;
+  text-align: center;
+  animation: scaleIn 0.2s ease;
+}
+@keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } }
+.confirm-box h3 { font-size: 17px; margin-bottom: 8px; }
+.confirm-box p { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-actions .btn { flex: 1; }
+
+/* ===== TOAST ===== */
+.toast-container {
+  position: fixed;
+  top: calc(var(--safe-top) + 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
+  pointer-events: none;
+}
+.toast {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 18px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2s forwards;
+  white-space: nowrap;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ===== DETAIL VIEW ===== */
+.detail-field {
+  margin-bottom: 12px;
+}
+.detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.detail-value {
+  font-size: 15px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.detail-photo {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  margin-bottom: 12px;
+}
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ===== SUGGESTION BOX ===== */
+.suggestion-box {
+  background: var(--surface-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-top: 8px;
+}
+.suggestion-box h4 {
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.suggestion-item {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+.suggestion-item strong { color: var(--text); }
+
+/* Favorite toggle in form */
+.fav-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.fav-toggle .heart {
+  font-size: 22px;
+  color: var(--text-faint);
+  transition: all var(--transition);
+}
+.fav-toggle .heart.active { color: var(--danger); }
+.fav-toggle span { font-size: 14px; color: var(--text-muted); }
+
+/* Responsive desktop */
+@media (min-width: 640px) {
+  .app { padding: 0 24px calc(72px + var(--safe-bottom)); }
+  .view { padding: 16px 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <path d="M14 3C14 3 8 7 8 13c0 3.3 2.7 6 6 6s6-2.7 6-6c0-6-6-10-6-10z" fill="var(--wine-red)" opacity="0.8"/>
+          <path d="M14 5c0 0-4 3.5-4 8.5c0 2.2 1.8 4 4 4s4-1.8 4-4c0-5-4-8.5-4-8.5z" fill="var(--wine-red-light)" opacity="0.6"/>
+          <ellipse cx="14" cy="21" rx="3" ry="1" fill="var(--accent)" opacity="0.3"/>
+          <rect x="13" y="19" width="2" height="5" rx="1" fill="var(--accent)" opacity="0.5"/>
+          <rect x="10" y="24" width="8" height="1.5" rx="0.75" fill="var(--accent)" opacity="0.4"/>
+        </svg>
+        <span class="logo-text">品酒筆記</span>
+      </div>
+      <div class="sync-indicator" id="syncStatus">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncText">連線中</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- List View -->
+  <div class="view active" id="viewList">
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" placeholder="搜尋酒名、品牌、產區、筆記…" id="searchInput" autocomplete="off">
+    </div>
+    <div class="filter-row" id="filterRow">
+      <select class="sort-select" id="sortSelect">
+        <option value="date">最近品飲</option>
+        <option value="rating">評分高→低</option>
+        <option value="interest">興趣高→低</option>
+        <option value="price">價格高→低</option>
+        <option value="name">酒名 A→Z</option>
+      </select>
+      <button class="chip" data-filter="all">全部</button>
+      <button class="chip" data-filter="fav">❤ 收藏</button>
+      <button class="chip" data-filter="high-interest">高興趣</button>
+      <button class="chip" data-filter="Whisky">威士忌</button>
+      <button class="chip" data-filter="Red Wine">紅酒</button>
+      <button class="chip" data-filter="White Wine">白酒</button>
+      <button class="chip" data-filter="Champagne/Sparkling">香檳</button>
+      <button class="chip" data-filter="Sake">清酒</button>
+      <button class="chip" data-filter="Gin">琴酒</button>
+      <button class="chip" data-filter="Beer">啤酒</button>
+      <button class="chip" data-filter="Cocktail">雞尾酒</button>
+    </div>
+    <div class="wine-list" id="wineList"></div>
+  </div>
+
+  <!-- Stats View -->
+  <div class="view" id="viewStats">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:14px;">統計總覽</h2>
+    <div class="stats-grid" id="statsGrid"></div>
+    <h3 style="font-size:15px;font-weight:600;margin-bottom:10px;color:var(--text-muted);">酒類分佈</h3>
+    <div class="type-chart" id="typeChart"></div>
+  </div>
+
+  <!-- Tools View -->
+  <div class="view" id="viewTools">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:14px;">工具</h2>
+
+    <div class="settings-section">
+      <div class="settings-section-title">匯入</div>
+      <div class="settings-item" onclick="openQuickImport()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title">快速匯入</div>
+          <div class="settings-item-desc">貼上格式化文字快速新增</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-item" onclick="document.getElementById('importJsonFile').click()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title">匯入 JSON</div>
+          <div class="settings-item-desc">從備份檔匯入資料</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <input type="file" id="importJsonFile" accept=".json" style="display:none" onchange="handleImportJson(event)">
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">匯出</div>
+      <div class="settings-item" onclick="exportJson()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title">匯出 JSON</div>
+          <div class="settings-item-desc">備份所有品飲紀錄</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">資料</div>
+      <div class="settings-item" onclick="forceSyncFromCloud()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title">強制同步</div>
+          <div class="settings-item-desc">從雲端重新載入資料</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="settings-item" style="color:var(--danger)" onclick="confirmClearAll()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title" style="color:var(--danger)">清除所有資料</div>
+          <div class="settings-item-desc">刪除本地及雲端所有紀錄</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <p style="text-align:center;font-size:11px;color:var(--text-faint);margin-top:20px;">品酒筆記 v1.0 · 資料儲存於 Firebase</p>
+  </div>
+
+  <!-- FAB Group -->
+  <div class="fab-backdrop" id="fabBackdrop" onclick="closeFabMenu()"></div>
+  <div class="fab-group" id="fabGroup">
+    <button class="fab" id="fabAdd" onclick="toggleFabMenu()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+    <div class="fab-secondary" style="transition-delay:0.05s">
+      <span class="fab-secondary-label">快速匯入</span>
+      <button class="fab-mini import-btn" onclick="closeFabMenu();openQuickImport()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+      </button>
+    </div>
+    <div class="fab-secondary" style="transition-delay:0.1s">
+      <span class="fab-secondary-label">新增酒款</span>
+      <button class="fab-mini add-btn" onclick="closeFabMenu();openAddForm()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav">
+    <div class="nav-inner">
+      <button class="nav-btn active" data-view="viewList">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>列表</span>
+      </button>
+      <button class="nav-btn" data-view="viewStats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>統計</span>
+      </button>
+      <button class="nav-btn" data-view="viewTools">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span>工具</span>
+      </button>
+    </div>
+  </nav>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="formTitle">新增紀錄</h2>
+      <button class="modal-close" onclick="closeFormModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="wineForm" onsubmit="return handleFormSubmit(event)">
+        <input type="hidden" id="editId">
+
+        <!-- Photo -->
+        <div class="form-group">
+          <label class="form-label">酒標照片</label>
+          <div class="photo-area">
+            <div class="photo-preview" id="photoPreview" onclick="document.getElementById('photoInput').click()">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+            <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(event)">
+            <div class="photo-actions">
+              <button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('photoInput').click()">📷 拍照/選擇</button>
+              <button type="button" class="btn btn-sm btn-secondary" id="analyzeBtn" style="display:none" onclick="ocrAnalyzeLabel()">🔍 自動辨識酒標</button>
+            <div class="ocr-progress" id="ocrProgress">
+              <div class="ocr-progress-bar"><div class="ocr-progress-fill" id="ocrProgressFill"></div></div>
+              <div class="ocr-status" id="ocrStatus">準備中…</div>
+            </div>
+            <div class="ocr-text-preview" id="ocrTextPreview"></div>
+              <button type="button" class="btn btn-sm btn-ghost" id="removePhotoBtn" style="display:none" onclick="removePhoto()">移除照片</button>
+            </div>
+          </div>
+          <div id="suggestionBox" style="display:none"></div>
+        </div>
+
+        <!-- Name & Type -->
+        <div class="form-group">
+          <label class="form-label">酒名 *</label>
+          <input type="text" class="form-input" id="fName" placeholder="例：Ardbeg 10 Year Old" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">酒類</label>
+            <select class="form-input" id="fType">
+              <option value="">選擇類型</option>
+              <option value="Whisky">Whisky 威士忌</option>
+              <option value="Red Wine">Red Wine 紅酒</option>
+              <option value="White Wine">White Wine 白酒</option>
+              <option value="Champagne/Sparkling">Champagne 香檳</option>
+              <option value="Sake">Sake 清酒</option>
+              <option value="Gin">Gin 琴酒</option>
+              <option value="Rum">Rum 冧酒</option>
+              <option value="Tequila">Tequila 龍舌蘭</option>
+              <option value="Cognac">Cognac 干邑</option>
+              <option value="Beer">Beer 啤酒</option>
+              <option value="Cocktail">Cocktail 雞尾酒</option>
+              <option value="Other">其他</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">品飲日期</label>
+            <input type="date" class="form-input" id="fDate">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">品牌/酒廠</label>
+            <input type="text" class="form-input" id="fBrand" placeholder="例：Ardbeg">
+          </div>
+          <div class="form-group">
+            <label class="form-label">產區</label>
+            <input type="text" class="form-input" id="fRegion" placeholder="例：Islay, Scotland">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">年份/批次</label>
+            <input type="text" class="form-input" id="fYear" placeholder="例：10YO / 2018">
+          </div>
+          <div class="form-group">
+            <label class="form-label">價格 (HKD)</label>
+            <input type="number" class="form-input" id="fPrice" placeholder="例：580">
+          </div>
+        </div>
+
+        <!-- Rating -->
+        <div class="form-group">
+          <label class="form-label">評分</label>
+          <div class="rating-input" id="ratingInput">
+            <span class="rating-value" id="ratingValue">0/10</span>
+          </div>
+        </div>
+
+        <!-- Interest -->
+        <div class="form-group">
+          <label class="form-label">興趣（想再買）</label>
+          <div class="interest-input" id="interestInput">
+            <span class="rating-value" id="interestValue" style="margin-left:0;margin-right:6px;">0/5</span>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group">
+          <label class="form-label">感想</label>
+          <textarea class="form-input" id="fNotes" placeholder="風味、香氣、口感、整體印象…" rows="3"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">地點</label>
+            <input type="text" class="form-input" id="fLocation" placeholder="例：家中 / Bar ABC">
+          </div>
+          <div class="form-group">
+            <label class="form-label">搭餐</label>
+            <input type="text" class="form-input" id="fPairing" placeholder="例：煙燻堅果">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">標籤（逗號分隔）</label>
+          <input type="text" class="form-input" id="fTags" placeholder="例：泥煤, 重口味, 送禮">
+        </div>
+
+        <!-- Favorite -->
+        <div class="form-group">
+          <div class="fav-toggle" onclick="toggleFormFav()">
+            <span class="heart" id="formFavHeart">♡</span>
+            <span id="formFavText">加入收藏</span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button type="button" class="btn btn-secondary btn-block" onclick="closeFormModal()">取消</button>
+          <button type="submit" class="btn btn-primary btn-block" id="formSubmitBtn">儲存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="detailTitle">詳細資料</h2>
+      <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- Quick Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>快速匯入</h2>
+      <button class="modal-close" onclick="closeImportModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">貼上格式化文字，多筆紀錄以空行分隔：</p>
+      <textarea class="import-area" id="importTextArea" placeholder="酒名：Ardbeg 10
+酒類：Whisky
+品牌：Ardbeg
+產區：Islay, Scotland
+年份：10YO
+評分：4
+興趣：5
+地點：家中
+搭餐：煙燻堅果
+感想：泥煤重，海風感明顯，尾韻長。
+標籤：泥煤, 重口味
+日期：2026-04-12
+收藏：是"></textarea>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-block" onclick="closeImportModal()">取消</button>
+        <button class="btn btn-primary btn-block" onclick="handleQuickImport()">匯入</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">確認</h3>
+    <p id="confirmMsg">確定要執行此操作嗎？</p>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" onclick="closeConfirm()">取消</button>
+      <button class="btn btn-danger" id="confirmAction">確定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import JSON Mode Confirm -->
+<div class="confirm-overlay" id="importModeOverlay">
+  <div class="confirm-box">
+    <h3>匯入模式</h3>
+    <p>請選擇匯入方式：</p>
+    <div class="confirm-actions" style="flex-direction:column;">
+      <button class="btn btn-primary btn-block" id="importMergeBtn">合併（保留現有資料）</button>
+      <button class="btn btn-danger btn-block" id="importReplaceBtn">取代（清除現有資料）</button>
+      <button class="btn btn-secondary btn-block" onclick="document.getElementById('importModeOverlay').classList.remove('active')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ===== FIREBASE INIT =====
+const firebaseConfig = {
+  apiKey: "AIzaSyB97UubOrPM60uo0ZQH00UP-RMysU3M6uM",
+  authDomain: "wine-list-90972.firebaseapp.com",
+  projectId: "wine-list-90972",
+  storageBucket: "wine-list-90972.firebasestorage.app",
+  messagingSenderId: "343813956911",
+  appId: "1:343813956911:web:851152a7977a9760526dda"
+};
+const USER_ID = "eric-chiu-hk";
+const DOC_PATH = `wine_notes/${USER_ID}`;
+
+let db = null;
+let firebaseReady = false;
+
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  firebaseReady = true;
+} catch(e) {
+  console.warn('Firebase init failed:', e);
+}
+
+// ===== STATE =====
+let entries = [];
+let currentFilter = 'all';
+let currentSort = 'date';
+let searchQuery = '';
+let formRating = 0;
+let formInterest = 0;
+let formFavorite = false;
+let currentPhotoBase64 = null;
+let pendingImportData = null;
+
+// ===== SYNC =====
+function setSyncStatus(status) {
+  const dot = document.getElementById('syncDot');
+  const text = document.getElementById('syncText');
+  dot.className = 'sync-dot ' + status;
+  const labels = { connected: '已同步', syncing: '同步中…', error: '離線', offline: '離線' };
+  text.textContent = labels[status] || '離線';
+}
+
+async function saveToCloud() {
+  if (!firebaseReady || !db) return;
+  setSyncStatus('syncing');
+  try {
+    // Strip photo data for entries with very large photos to avoid Firestore limits
+    const cleanEntries = entries.map(e => {
+      const copy = {...e};
+      // Firestore doc limit is 1MB; if photo is huge, we still try
+      return copy;
+    });
+    await db.doc(DOC_PATH).set({
+      entries: cleanEntries,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    setSyncStatus('connected');
+    saveToLocal();
+  } catch(e) {
+    console.error('Save to cloud failed:', e);
+    setSyncStatus('error');
+    saveToLocal();
+  }
+}
+
+async function loadFromCloud() {
+  if (!firebaseReady || !db) {
+    loadFromLocal();
+    setSyncStatus('offline');
+    return;
+  }
+  setSyncStatus('syncing');
+  try {
+    const doc = await db.doc(DOC_PATH).get();
+    if (doc.exists && doc.data().entries) {
+      entries = doc.data().entries;
+      saveToLocal();
+    } else {
+      loadFromLocal();
+    }
+    setSyncStatus('connected');
+  } catch(e) {
+    console.error('Load from cloud failed:', e);
+    loadFromLocal();
+    setSyncStatus('error');
+  }
+  renderList();
+  renderStats();
+}
+
+async function forceSyncFromCloud() {
+  await loadFromCloud();
+  showToast('已重新載入雲端資料');
+}
+
+// Local storage wrapper - gracefully handles sandboxed environments
+const _store = { data: null };
+const _ls = (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })();
+function saveToLocal() {
+  try {
+    _store.data = JSON.stringify(entries);
+    if (_ls) _ls.setItem('wine_entries', _store.data);
+  } catch(e) {}
+}
+function loadFromLocal() {
+  try {
+    let data = null;
+    try { if (_ls) data = _ls.getItem('wine_entries'); } catch(e) {}
+    if (!data) data = _store.data;
+    if (data) entries = JSON.parse(data);
+  } catch(e) {}
+}
+
+// ===== FAB MENU =====
+function toggleFabMenu() {
+  const group = document.getElementById('fabGroup');
+  const backdrop = document.getElementById('fabBackdrop');
+  group.classList.toggle('open');
+  backdrop.classList.toggle('active');
+}
+function closeFabMenu() {
+  document.getElementById('fabGroup').classList.remove('open');
+  document.getElementById('fabBackdrop').classList.remove('active');
+}
+
+// ===== NAVIGATION =====
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const viewId = btn.dataset.view;
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(viewId).classList.add('active');
+    if (viewId === 'viewStats') renderStats();
+    // Show/hide FAB
+    document.getElementById('fabGroup').style.display = (viewId === 'viewList') ? 'flex' : 'none';
+    closeFabMenu();
+  });
+});
+
+// ===== SEARCH & FILTER =====
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  searchQuery = e.target.value.toLowerCase().trim();
+  renderList();
+});
+
+document.getElementById('sortSelect').addEventListener('change', (e) => {
+  currentSort = e.target.value;
+  renderList();
+});
+
+document.querySelectorAll('.chip[data-filter]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip[data-filter]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentFilter = chip.dataset.filter;
+    renderList();
+  });
+});
+// Set default "all" active
+document.querySelector('.chip[data-filter="all"]').classList.add('active');
+
+// ===== RENDER LIST =====
+function getFilteredEntries() {
+  let list = [...entries];
+
+  // Search
+  if (searchQuery) {
+    list = list.filter(e =>
+      (e.name || '').toLowerCase().includes(searchQuery) ||
+      (e.brand || '').toLowerCase().includes(searchQuery) ||
+      (e.region || '').toLowerCase().includes(searchQuery) ||
+      (e.notes || '').toLowerCase().includes(searchQuery) ||
+      (e.tags || '').toLowerCase().includes(searchQuery) ||
+      (e.location || '').toLowerCase().includes(searchQuery)
+    );
+  }
+
+  // Filter
+  if (currentFilter === 'fav') {
+    list = list.filter(e => e.favorite);
+  } else if (currentFilter === 'high-interest') {
+    list = list.filter(e => (e.interest || 0) >= 4);
+  } else if (currentFilter !== 'all') {
+    list = list.filter(e => e.type === currentFilter);
+  }
+
+  // Sort
+  switch(currentSort) {
+    case 'date':
+      list.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+      break;
+    case 'rating':
+      list.sort((a,b) => (b.rating || 0) - (a.rating || 0));
+      break;
+    case 'interest':
+      list.sort((a,b) => (b.interest || 0) - (a.interest || 0));
+      break;
+    case 'price':
+      list.sort((a,b) => (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0));
+      break;
+    case 'name':
+      list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+      break;
+  }
+
+  return list;
+}
+
+function getTypeBadgeClass(type) {
+  const map = {
+    'Whisky': 'whisky',
+    'Red Wine': '',
+    'White Wine': 'white-wine',
+    'Champagne/Sparkling': 'champagne',
+    'Sake': 'sake',
+    'Gin': 'gin',
+    'Rum': 'rum',
+    'Tequila': 'tequila',
+    'Cognac': 'cognac',
+    'Beer': 'beer',
+    'Cocktail': 'cocktail',
+    'Other': 'other'
+  };
+  return map[type] || 'other';
+}
+
+function getTypeLabel(type) {
+  const map = {
+    'Whisky': '威士忌', 'Red Wine': '紅酒', 'White Wine': '白酒',
+    'Champagne/Sparkling': '香檳', 'Sake': '清酒', 'Gin': '琴酒',
+    'Rum': '冧酒', 'Tequila': '龍舌蘭', 'Cognac': '干邑',
+    'Beer': '啤酒', 'Cocktail': '雞尾酒', 'Other': '其他'
+  };
+  return map[type] || type || '未分類';
+}
+
+function renderStars(rating, max=10) {
+  let html = '';
+  for (let i = 1; i <= max; i++) {
+    html += `<span class="star ${i <= rating ? 'filled' : ''}">★</span>`;
+  }
+  return html;
+}
+
+function renderInterestDots(interest) {
+  let html = '';
+  for (let i = 1; i <= 5; i++) {
+    html += `<span class="interest-dot ${i <= interest ? 'filled' : ''}"></span>`;
+  }
+  return html;
+}
+
+function renderList() {
+  const container = document.getElementById('wineList');
+  const list = getFilteredEntries();
+
+  if (entries.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 22h8M12 2v2M12 8v2"/>
+          <path d="M7 4h10l-1 8c-.3 2.5-2.2 4-4 4h-2c-1.8 0-3.7-1.5-4-4L7 4z"/>
+          <path d="M12 18v4"/>
+        </svg>
+        <h3>尚無品飲紀錄</h3>
+        <p>按下右下角 + 開始記錄你的品酒體驗</p>
+      </div>`;
+    return;
+  }
+
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <h3>找不到相符的紀錄</h3>
+        <p>試試其他搜尋條件</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = list.map(entry => {
+    const tags = (entry.tags || '').split(',').filter(t => t.trim()).map(t => `<span class="wine-card-tag">${t.trim()}</span>`).join('');
+    const hasPhoto = entry.photo ? `<img class="wine-card-thumb" src="${entry.photo}" alt="">` : '';
+    return `
+    <div class="wine-card" onclick="openDetail('${entry.id}')">
+      <div class="wine-card-header">
+        <div style="flex:1;">
+          <div class="wine-card-title">${escHtml(entry.name || '未命名')}</div>
+          <div class="wine-card-meta">
+            ${entry.type ? `<span class="type-badge ${getTypeBadgeClass(entry.type)}">${getTypeLabel(entry.type)}</span>` : ''}
+            ${entry.brand ? `<span style="font-size:11px;color:var(--text-faint)">${escHtml(entry.brand)}</span>` : ''}
+            ${entry.date ? `<span class="wine-card-date">${entry.date}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${hasPhoto}
+          <span class="wine-card-fav ${entry.favorite ? 'active' : ''}">${entry.favorite ? '♥' : ''}</span>
+        </div>
+      </div>
+      <div class="wine-card-rating">
+        ${renderStars(entry.rating || 0)}
+        <div class="interest-dots">${renderInterestDots(entry.interest || 0)}</div>
+      </div>
+      ${entry.notes ? `<div class="wine-card-notes">${escHtml(entry.notes)}</div>` : ''}
+      ${tags ? `<div class="wine-card-tags">${tags}</div>` : ''}
+      ${entry.price ? `<div style="font-size:11px;color:var(--gold);margin-top:4px;">HK$ ${escHtml(String(entry.price))}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ===== DETAIL VIEW =====
+function openDetail(id) {
+  const entry = entries.find(e => e.id === id);
+  if (!entry) return;
+
+  document.getElementById('detailTitle').textContent = entry.name || '詳細資料';
+  const body = document.getElementById('detailBody');
+
+  let html = '';
+
+  if (entry.photo) {
+    html += `<img class="detail-photo" src="${entry.photo}" alt="酒標">`;
+  }
+
+  const fields = [
+    ['酒類', getTypeLabel(entry.type)],
+    ['品牌/酒廠', entry.brand],
+    ['產區', entry.region],
+    ['年份/批次', entry.year],
+    ['價格', entry.price ? `HK$ ${entry.price}` : ''],
+    ['品飲日期', entry.date],
+    ['地點', entry.location],
+    ['搭餐', entry.pairing],
+    ['標籤', entry.tags],
+  ];
+
+  fields.forEach(([label, value]) => {
+    if (value) {
+      html += `<div class="detail-field"><div class="detail-label">${label}</div><div class="detail-value">${escHtml(value)}</div></div>`;
+    }
+  });
+
+  if (entry.rating) {
+    html += `<div class="detail-field"><div class="detail-label">評分</div><div class="wine-card-rating" style="margin:4px 0">${renderStars(entry.rating)}<span style="font-size:13px;color:var(--text-muted);margin-left:8px;">${entry.rating}/10</span></div></div>`;
+  }
+  if (entry.interest) {
+    html += `<div class="detail-field"><div class="detail-label">興趣</div><div class="interest-dots" style="margin:4px 0">${renderInterestDots(entry.interest)}<span style="font-size:13px;color:var(--text-muted);margin-left:8px;">${entry.interest}/5</span></div></div>`;
+  }
+  if (entry.notes) {
+    html += `<div class="detail-field"><div class="detail-label">感想</div><div class="detail-value" style="white-space:pre-wrap">${escHtml(entry.notes)}</div></div>`;
+  }
+  if (entry.favorite) {
+    html += `<div style="color:var(--danger);font-size:13px;margin-top:4px;">♥ 已收藏</div>`;
+  }
+
+  html += `
+    <div class="detail-actions">
+      <button class="btn btn-secondary" style="flex:1" onclick="openEditForm('${entry.id}')">✏️ 編輯</button>
+      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete('${entry.id}')">🗑 刪除</button>
+    </div>`;
+
+  body.innerHTML = html;
+  document.getElementById('detailModal').classList.add('active');
+}
+
+function closeDetailModal() {
+  document.getElementById('detailModal').classList.remove('active');
+}
+
+// ===== FORM =====
+function initRatingInput() {
+  const container = document.getElementById('ratingInput');
+  let html = '';
+  for (let i = 1; i <= 10; i++) {
+    html += `<button type="button" class="star-btn" data-val="${i}" onclick="setFormRating(${i})">★</button>`;
+  }
+  html += `<span class="rating-value" id="ratingValue">${formRating}/10</span>`;
+  container.innerHTML = html;
+  updateRatingDisplay();
+}
+
+function initInterestInput() {
+  const container = document.getElementById('interestInput');
+  let html = `<span class="rating-value" id="interestValue" style="margin-left:0;margin-right:6px;">${formInterest}/5</span>`;
+  for (let i = 1; i <= 5; i++) {
+    html += `<button type="button" class="dot-btn" data-val="${i}" onclick="setFormInterest(${i})">●</button>`;
+  }
+  container.innerHTML = html;
+  updateInterestDisplay();
+}
+
+function setFormRating(val) {
+  formRating = (formRating === val) ? 0 : val;
+  updateRatingDisplay();
+}
+function setFormInterest(val) {
+  formInterest = (formInterest === val) ? 0 : val;
+  updateInterestDisplay();
+}
+
+function updateRatingDisplay() {
+  document.querySelectorAll('#ratingInput .star-btn').forEach(btn => {
+    btn.classList.toggle('filled', parseInt(btn.dataset.val) <= formRating);
+  });
+  const rv = document.getElementById('ratingValue');
+  if (rv) rv.textContent = `${formRating}/10`;
+}
+function updateInterestDisplay() {
+  document.querySelectorAll('#interestInput .dot-btn').forEach(btn => {
+    btn.classList.toggle('filled', parseInt(btn.dataset.val) <= formInterest);
+  });
+  const iv = document.getElementById('interestValue');
+  if (iv) iv.textContent = `${formInterest}/5`;
+}
+
+function toggleFormFav() {
+  formFavorite = !formFavorite;
+  const heart = document.getElementById('formFavHeart');
+  const text = document.getElementById('formFavText');
+  heart.textContent = formFavorite ? '♥' : '♡';
+  heart.classList.toggle('active', formFavorite);
+  text.textContent = formFavorite ? '已收藏' : '加入收藏';
+}
+
+function resetForm() {
+  document.getElementById('wineForm').reset();
+  document.getElementById('editId').value = '';
+  formRating = 0;
+  formInterest = 0;
+  formFavorite = false;
+  currentPhotoBase64 = null;
+  document.getElementById('photoPreview').innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+  document.getElementById('analyzeBtn').style.display = 'none';
+  document.getElementById('removePhotoBtn').style.display = 'none';
+  document.getElementById('suggestionBox').style.display = 'none';
+  document.getElementById('formFavHeart').textContent = '♡';
+  document.getElementById('formFavHeart').classList.remove('active');
+  document.getElementById('formFavText').textContent = '加入收藏';
+  initRatingInput();
+  initInterestInput();
+}
+
+function openAddForm() {
+  resetForm();
+  document.getElementById('formTitle').textContent = '新增紀錄';
+  document.getElementById('formSubmitBtn').textContent = '儲存';
+  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('formModal').classList.add('active');
+}
+
+function openEditForm(id) {
+  closeDetailModal();
+  const entry = entries.find(e => e.id === id);
+  if (!entry) return;
+
+  resetForm();
+  document.getElementById('formTitle').textContent = '編輯紀錄';
+  document.getElementById('formSubmitBtn').textContent = '更新';
+  document.getElementById('editId').value = id;
+  document.getElementById('fName').value = entry.name || '';
+  document.getElementById('fType').value = entry.type || '';
+  document.getElementById('fDate').value = entry.date || '';
+  document.getElementById('fBrand').value = entry.brand || '';
+  document.getElementById('fRegion').value = entry.region || '';
+  document.getElementById('fYear').value = entry.year || '';
+  document.getElementById('fPrice').value = entry.price || '';
+  document.getElementById('fNotes').value = entry.notes || '';
+  document.getElementById('fLocation').value = entry.location || '';
+  document.getElementById('fPairing').value = entry.pairing || '';
+  document.getElementById('fTags').value = entry.tags || '';
+
+  formRating = entry.rating || 0;
+  formInterest = entry.interest || 0;
+  formFavorite = entry.favorite || false;
+
+  if (entry.photo) {
+    currentPhotoBase64 = entry.photo;
+    document.getElementById('photoPreview').innerHTML = `<img src="${entry.photo}" alt="">`;
+    document.getElementById('analyzeBtn').style.display = 'block';
+    document.getElementById('removePhotoBtn').style.display = 'block';
+  }
+
+  updateRatingDisplay();
+  updateInterestDisplay();
+  if (formFavorite) {
+    document.getElementById('formFavHeart').textContent = '♥';
+    document.getElementById('formFavHeart').classList.add('active');
+    document.getElementById('formFavText').textContent = '已收藏';
+  }
+
+  document.getElementById('formModal').classList.add('active');
+}
+
+function closeFormModal() {
+  document.getElementById('formModal').classList.remove('active');
+}
+
+function handleFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('editId').value;
+  const entryData = {
+    id: id || generateId(),
+    name: document.getElementById('fName').value.trim(),
+    type: document.getElementById('fType').value,
+    date: document.getElementById('fDate').value,
+    brand: document.getElementById('fBrand').value.trim(),
+    region: document.getElementById('fRegion').value.trim(),
+    year: document.getElementById('fYear').value.trim(),
+    price: document.getElementById('fPrice').value,
+    rating: formRating,
+    interest: formInterest,
+    notes: document.getElementById('fNotes').value.trim(),
+    location: document.getElementById('fLocation').value.trim(),
+    pairing: document.getElementById('fPairing').value.trim(),
+    tags: document.getElementById('fTags').value.trim(),
+    favorite: formFavorite,
+    photo: currentPhotoBase64 || '',
+    createdAt: id ? (entries.find(e2 => e2.id === id)?.createdAt || Date.now()) : Date.now()
+  };
+
+  if (id) {
+    const idx = entries.findIndex(e2 => e2.id === id);
+    if (idx >= 0) entries[idx] = entryData;
+  } else {
+    entries.unshift(entryData);
+  }
+
+  closeFormModal();
+  renderList();
+  saveToCloud();
+  showToast(id ? '已更新紀錄' : '已新增紀錄 🎉');
+}
+
+// ===== PHOTO HANDLING =====
+function handlePhoto(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    // Resize image to reduce size
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const maxSize = 600;
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > maxSize) { h *= maxSize/w; w = maxSize; } }
+      else { if (h > maxSize) { w *= maxSize/h; h = maxSize; } }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      currentPhotoBase64 = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('photoPreview').innerHTML = `<img src="${currentPhotoBase64}" alt="">`;
+      document.getElementById('analyzeBtn').style.display = 'block';
+      document.getElementById('removePhotoBtn').style.display = 'block';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removePhoto() {
+  currentPhotoBase64 = null;
+  document.getElementById('photoPreview').innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+  document.getElementById('analyzeBtn').style.display = 'none';
+  document.getElementById('removePhotoBtn').style.display = 'none';
+  document.getElementById('photoInput').value = '';
+  document.getElementById('ocrProgress').classList.remove('active');
+  document.getElementById('ocrTextPreview').classList.remove('active');
+  document.getElementById('suggestionBox').style.display = 'none';
+}
+
+// ===== OCR LABEL ANALYSIS (Tesseract.js) =====
+let ocrWorker = null;
+
+const BRAND_DATABASE = [
+  // Whisky
+  { names: ['ardbeg'], brand: 'Ardbeg', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['laphroaig'], brand: 'Laphroaig', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['lagavulin'], brand: 'Lagavulin', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['macallan'], brand: 'The Macallan', region: 'Speyside, Scotland', type: 'Whisky' },
+  { names: ['glenfiddich'], brand: 'Glenfiddich', region: 'Speyside, Scotland', type: 'Whisky' },
+  { names: ['glenlivet'], brand: 'The Glenlivet', region: 'Speyside, Scotland', type: 'Whisky' },
+  { names: ['glenmorangie'], brand: 'Glenmorangie', region: 'Highland, Scotland', type: 'Whisky' },
+  { names: ['highland park'], brand: 'Highland Park', region: 'Islands, Scotland', type: 'Whisky' },
+  { names: ['talisker'], brand: 'Talisker', region: 'Isle of Skye, Scotland', type: 'Whisky' },
+  { names: ['balvenie'], brand: 'The Balvenie', region: 'Speyside, Scotland', type: 'Whisky' },
+  { names: ['oban'], brand: 'Oban', region: 'Highland, Scotland', type: 'Whisky' },
+  { names: ['dalmore'], brand: 'The Dalmore', region: 'Highland, Scotland', type: 'Whisky' },
+  { names: ['aberlour'], brand: 'Aberlour', region: 'Speyside, Scotland', type: 'Whisky' },
+  { names: ['bunnahabhain'], brand: 'Bunnahabhain', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['caol ila'], brand: 'Caol Ila', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['springbank'], brand: 'Springbank', region: 'Campbeltown, Scotland', type: 'Whisky' },
+  { names: ['nikka', 'yoichi', 'miyagikyo'], brand: 'Nikka', region: 'Japan', type: 'Whisky' },
+  { names: ['suntory', 'yamazaki', 'hakushu', 'hibiki', 'chita'], brand: 'Suntory', region: 'Japan', type: 'Whisky' },
+  { names: ['kavalan'], brand: 'Kavalan', region: 'Taiwan', type: 'Whisky' },
+  { names: ['jack daniel'], brand: "Jack Daniel's", region: 'Tennessee, USA', type: 'Whisky' },
+  { names: ['makers mark', "maker's mark"], brand: "Maker's Mark", region: 'Kentucky, USA', type: 'Whisky' },
+  { names: ['woodford'], brand: 'Woodford Reserve', region: 'Kentucky, USA', type: 'Whisky' },
+  { names: ['buffalo trace'], brand: 'Buffalo Trace', region: 'Kentucky, USA', type: 'Whisky' },
+  { names: ['wild turkey'], brand: 'Wild Turkey', region: 'Kentucky, USA', type: 'Whisky' },
+  { names: ['jameson'], brand: 'Jameson', region: 'Ireland', type: 'Whisky' },
+  { names: ['johnnie walker'], brand: 'Johnnie Walker', region: 'Scotland', type: 'Whisky' },
+  { names: ['bowmore'], brand: 'Bowmore', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['bruichladdich', 'octomore'], brand: 'Bruichladdich', region: 'Islay, Scotland', type: 'Whisky' },
+  { names: ['dewar'], brand: "Dewar's", region: 'Scotland', type: 'Whisky' },
+  { names: ['chivas'], brand: 'Chivas Regal', region: 'Scotland', type: 'Whisky' },
+  { names: ['monkey shoulder'], brand: 'Monkey Shoulder', region: 'Scotland', type: 'Whisky' },
+  { names: ['singleton'], brand: 'The Singleton', region: 'Scotland', type: 'Whisky' },
+  // Wine
+  { names: ['chateau', 'château'], type: 'Red Wine', region: 'France' },
+  { names: ['domaine'], type: 'Red Wine', region: 'France' },
+  { names: ['barolo', 'barbaresco'], type: 'Red Wine', region: 'Piedmont, Italy' },
+  { names: ['chianti', 'brunello'], type: 'Red Wine', region: 'Tuscany, Italy' },
+  { names: ['rioja'], type: 'Red Wine', region: 'Rioja, Spain' },
+  { names: ['bordeaux'], type: 'Red Wine', region: 'Bordeaux, France' },
+  { names: ['burgundy', 'bourgogne'], type: 'Red Wine', region: 'Burgundy, France' },
+  { names: ['margaux'], brand: 'Château Margaux', type: 'Red Wine', region: 'Bordeaux, France' },
+  { names: ['lafite'], brand: 'Château Lafite Rothschild', type: 'Red Wine', region: 'Bordeaux, France' },
+  { names: ['latour'], brand: 'Château Latour', type: 'Red Wine', region: 'Bordeaux, France' },
+  { names: ['mouton'], brand: 'Château Mouton Rothschild', type: 'Red Wine', region: 'Bordeaux, France' },
+  { names: ['penfolds'], brand: 'Penfolds', type: 'Red Wine', region: 'South Australia' },
+  { names: ['opus one'], brand: 'Opus One', type: 'Red Wine', region: 'Napa Valley, USA' },
+  { names: ['champagne', 'moët', 'moet', 'veuve clicquot', 'veuve', 'dom perignon', 'dom pérignon', 'krug', 'bollinger', 'taittinger', 'ruinart', 'laurent-perrier', 'perrier jouet'], type: 'Champagne/Sparkling', region: 'Champagne, France' },
+  { names: ['prosecco'], type: 'Champagne/Sparkling', region: 'Veneto, Italy' },
+  { names: ['cava'], type: 'Champagne/Sparkling', region: 'Spain' },
+  { names: ['riesling'], type: 'White Wine', region: 'Germany' },
+  { names: ['sauvignon blanc', 'chardonnay', 'pinot grigio', 'gewurztraminer', 'viognier'], type: 'White Wine' },
+  { names: ['cabernet sauvignon', 'cabernet'], type: 'Red Wine' },
+  { names: ['merlot', 'pinot noir', 'syrah', 'shiraz', 'malbec', 'tempranillo', 'sangiovese', 'nebbiolo', 'zinfandel'], type: 'Red Wine' },
+  // Sake
+  { names: ['獺祭', 'dassai'], brand: '獺祭', region: '山口縣, 日本', type: 'Sake' },
+  { names: ['十四代'], brand: '十四代', region: '山形縣, 日本', type: 'Sake' },
+  { names: ['而今'], brand: '而今', region: '三重縣, 日本', type: 'Sake' },
+  { names: ['久保田'], brand: '久保田', region: '新潟縣, 日本', type: 'Sake' },
+  { names: ['上善如水'], brand: '上善如水', region: '新潟縣, 日本', type: 'Sake' },
+  { names: ['黒龍', '黑龍'], brand: '黑龍', region: '福井縣, 日本', type: 'Sake' },
+  { names: ['純米', '大吟醸', '大吟釀', '吟醸', '吟釀', '本醸造', '本釀造'], type: 'Sake', region: '日本' },
+  { names: ['junmai', 'daiginjo', 'ginjo'], type: 'Sake', region: 'Japan' },
+  // Gin
+  { names: ['hendrick'], brand: "Hendrick's", type: 'Gin', region: 'Scotland' },
+  { names: ['tanqueray'], brand: 'Tanqueray', type: 'Gin', region: 'England' },
+  { names: ['bombay sapphire', 'bombay'], brand: 'Bombay Sapphire', type: 'Gin', region: 'England' },
+  { names: ['roku', '六'], brand: 'Roku', type: 'Gin', region: 'Japan' },
+  { names: ['ki no bi', 'kinobi'], brand: 'Ki No Bi', type: 'Gin', region: 'Kyoto, Japan' },
+  { names: ['beefeater'], brand: 'Beefeater', type: 'Gin', region: 'London, England' },
+  { names: ['gordon'], brand: "Gordon's", type: 'Gin', region: 'England' },
+  // Cognac
+  { names: ['hennessy'], brand: 'Hennessy', type: 'Cognac', region: 'Cognac, France' },
+  { names: ['rémy martin', 'remy martin'], brand: 'Rémy Martin', type: 'Cognac', region: 'Cognac, France' },
+  { names: ['martell'], brand: 'Martell', type: 'Cognac', region: 'Cognac, France' },
+  { names: ['courvoisier'], brand: 'Courvoisier', type: 'Cognac', region: 'Cognac, France' },
+  { names: ['v.s.o.p', 'vsop', 'x.o', 'xo'], type: 'Cognac' },
+  // Rum
+  { names: ['diplomatico', 'diplomático'], brand: 'Diplomático', type: 'Rum', region: 'Venezuela' },
+  { names: ['havana club'], brand: 'Havana Club', type: 'Rum', region: 'Cuba' },
+  { names: ['bacardi'], brand: 'Bacardi', type: 'Rum', region: 'Puerto Rico' },
+  { names: ['ron zacapa'], brand: 'Ron Zacapa', type: 'Rum', region: 'Guatemala' },
+  // Tequila
+  { names: ['don julio'], brand: 'Don Julio', type: 'Tequila', region: 'Jalisco, Mexico' },
+  { names: ['patrón', 'patron'], brand: 'Patrón', type: 'Tequila', region: 'Jalisco, Mexico' },
+  { names: ['jose cuervo'], brand: 'Jose Cuervo', type: 'Tequila', region: 'Jalisco, Mexico' },
+  // Beer
+  { names: ['heineken'], brand: 'Heineken', type: 'Beer', region: 'Netherlands' },
+  { names: ['asahi'], brand: 'Asahi', type: 'Beer', region: 'Japan' },
+  { names: ['sapporo'], brand: 'Sapporo', type: 'Beer', region: 'Japan' },
+  { names: ['kirin'], brand: 'Kirin', type: 'Beer', region: 'Japan' },
+  { names: ['guinness'], brand: 'Guinness', type: 'Beer', region: 'Ireland' },
+];
+
+// Region keywords for additional matching
+const REGION_KEYWORDS = [
+  { words: ['islay'], region: 'Islay, Scotland' },
+  { words: ['speyside'], region: 'Speyside, Scotland' },
+  { words: ['highland'], region: 'Highland, Scotland' },
+  { words: ['campbeltown'], region: 'Campbeltown, Scotland' },
+  { words: ['scotland', 'scotch'], region: 'Scotland' },
+  { words: ['bourbon', 'kentucky'], region: 'Kentucky, USA' },
+  { words: ['tennessee'], region: 'Tennessee, USA' },
+  { words: ['napa', 'california'], region: 'California, USA' },
+  { words: ['bordeaux'], region: 'Bordeaux, France' },
+  { words: ['burgundy', 'bourgogne'], region: 'Burgundy, France' },
+  { words: ['champagne'], region: 'Champagne, France' },
+  { words: ['tuscany', 'toscana'], region: 'Tuscany, Italy' },
+  { words: ['piedmont', 'piemonte'], region: 'Piedmont, Italy' },
+  { words: ['rioja'], region: 'Rioja, Spain' },
+  { words: ['新潟', 'niigata'], region: '新潟縣, 日本' },
+  { words: ['山口', 'yamaguchi'], region: '山口縣, 日本' },
+  { words: ['山形', 'yamagata'], region: '山形縣, 日本' },
+  { words: ['京都', 'kyoto'], region: '京都, 日本' },
+];
+
+function smartAnalyzeText(ocrText) {
+  const text = ocrText.toLowerCase();
+  const suggestions = {};
+  let bestNameCandidate = '';
+
+  // Match against brand database
+  for (const b of BRAND_DATABASE) {
+    for (const n of b.names) {
+      if (text.includes(n.toLowerCase())) {
+        if (b.brand) suggestions.brand = b.brand;
+        if (b.region) suggestions.region = b.region;
+        if (b.type) suggestions.type = b.type;
+        if (b.brand) bestNameCandidate = b.brand;
+        break;
+      }
+    }
+    if (suggestions.brand) break;
+  }
+
+  // Match region keywords
+  if (!suggestions.region) {
+    for (const r of REGION_KEYWORDS) {
+      for (const w of r.words) {
+        if (text.includes(w.toLowerCase())) {
+          suggestions.region = r.region;
+          break;
+        }
+      }
+      if (suggestions.region) break;
+    }
+  }
+
+  // Detect type from keywords if not already found
+  if (!suggestions.type) {
+    if (/single malt|scotch|whisky|whiskey|bourbon|blended/.test(text)) suggestions.type = 'Whisky';
+    else if (/champagne|brut|prosecco|cava|sparkling|spumante/.test(text)) suggestions.type = 'Champagne/Sparkling';
+    else if (/gin |london dry|distilled gin/.test(text)) suggestions.type = 'Gin';
+    else if (/rum |ron |rhum /.test(text)) suggestions.type = 'Rum';
+    else if (/tequila|mezcal|agave/.test(text)) suggestions.type = 'Tequila';
+    else if (/cognac|vsop|v\.s\.o\.p|x\.o\b|xo\b/.test(text)) suggestions.type = 'Cognac';
+    else if (/純米|大吟醸|大吟釀|吟醸|吟釀|清酒|sake|nihonshu|junmai|daiginjo/.test(text)) suggestions.type = 'Sake';
+    else if (/beer|ale|lager|stout|ipa|pilsner|啤酒|ビール/.test(text)) suggestions.type = 'Beer';
+    else if (/cabernet|merlot|pinot|syrah|shiraz|malbec|red wine|vin rouge|rosso/.test(text)) suggestions.type = 'Red Wine';
+    else if (/chardonnay|sauvignon|riesling|white wine|vin blanc|bianco/.test(text)) suggestions.type = 'White Wine';
+    else if (/wine|vin |vino /.test(text)) suggestions.type = 'Red Wine';
+  }
+
+  // Year / age pattern matching
+  const ageMatch = text.match(/(\d{1,2})\s*(?:yo|year|years?\s*old|yr|年)/i);
+  if (ageMatch) suggestions.year = ageMatch[1] + 'YO';
+  const vintageMatch = text.match(/((?:19|20)\d{2})/);
+  if (vintageMatch && !suggestions.year) suggestions.year = vintageMatch[1];
+
+  // ABV / alcohol content
+  const abvMatch = text.match(/(\d{1,2}(?:\.\d)?)[\s]*%/i);
+  if (abvMatch) suggestions.abv = abvMatch[1] + '%';
+
+  // Volume
+  const volMatch = text.match(/(\d{3,4})\s*ml/i);
+  if (volMatch) suggestions.volume = volMatch[1] + 'ml';
+
+  // Try to extract a wine/brand name from the first meaningful line of OCR text
+  if (!bestNameCandidate) {
+    const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 2 && l.length < 60);
+    // Pick the first line that looks like a name (not just numbers or symbols)
+    for (const line of lines) {
+      if (/[a-zA-Z\u4e00-\u9fff]{2,}/.test(line) && !/^\d+$/.test(line) && !/^\s*%/.test(line)) {
+        bestNameCandidate = line;
+        break;
+      }
+    }
+  }
+  if (bestNameCandidate) suggestions.name = bestNameCandidate;
+
+  return suggestions;
+}
+
+async function ocrAnalyzeLabel() {
+  if (!currentPhotoBase64) {
+    showToast('請先拍照或選擇酒標照片');
+    return;
+  }
+
+  const btn = document.getElementById('analyzeBtn');
+  const progress = document.getElementById('ocrProgress');
+  const progressFill = document.getElementById('ocrProgressFill');
+  const statusEl = document.getElementById('ocrStatus');
+  const textPreview = document.getElementById('ocrTextPreview');
+
+  btn.disabled = true;
+  btn.textContent = '辨識中…';
+  progress.classList.add('active');
+  progressFill.style.width = '0%';
+  statusEl.textContent = '載入 OCR 引擎…';
+  textPreview.classList.remove('active');
+
+  try {
+    const worker = await Tesseract.createWorker('eng+chi_tra', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round(m.progress * 100);
+          progressFill.style.width = pct + '%';
+          statusEl.textContent = '辨識文字中… ' + pct + '%';
+        } else if (m.status === 'loading language traineddata') {
+          const pct = Math.round(m.progress * 100);
+          progressFill.style.width = (pct * 0.3) + '%';
+          statusEl.textContent = '下載語言包… ' + pct + '%';
+        } else if (m.status === 'initializing api') {
+          progressFill.style.width = '35%';
+          statusEl.textContent = '初始化引擎…';
+        } else if (m.status === 'loading tesseract core') {
+          progressFill.style.width = '10%';
+          statusEl.textContent = '載入 OCR 核心…';
+        }
+      }
+    });
+
+    const { data } = await worker.recognize(currentPhotoBase64);
+    await worker.terminate();
+
+    const ocrText = data.text.trim();
+    progressFill.style.width = '100%';
+
+    if (!ocrText || ocrText.length < 2) {
+      statusEl.textContent = '未能辨識到文字，請嘗試拍攝更清晰的照片';
+      btn.disabled = false;
+      btn.textContent = '🔍 自動辨識酒標';
+      return;
+    }
+
+    // Show OCR text preview
+    textPreview.textContent = '辨識文字：' + ocrText.substring(0, 200);
+    textPreview.classList.add('active');
+    statusEl.textContent = '辨識完成，正在分析…';
+
+    // Smart analysis
+    const suggestions = smartAnalyzeText(ocrText);
+
+    if (Object.keys(suggestions).length === 0) {
+      statusEl.textContent = '辨識完成，但未能自動匹配酒款資料';
+      showToast('已辨識文字但未能匹配，請參考辨識文字手動輸入');
+      btn.disabled = false;
+      btn.textContent = '🔍 自動辨識酒標';
+      return;
+    }
+
+    statusEl.textContent = '分析完成';
+
+    // Show suggestion box
+    const box = document.getElementById('suggestionBox');
+    let html = '<div class="suggestion-box"><h4>🔍 辨識結果</h4>';
+    const labelMap = { name: '酒名', brand: '品牌', region: '產區', type: '酒類', year: '年份', abv: '酒精度', volume: '容量' };
+    for (const [key, val] of Object.entries(suggestions)) {
+      if (labelMap[key]) {
+        html += '<div class="suggestion-item"><strong>' + labelMap[key] + '：</strong>' + escHtml(val) + '</div>';
+      }
+    }
+    html += '<button type="button" class="btn btn-sm btn-primary" style="margin-top:8px" onclick="applySuggestions(' + escHtml(JSON.stringify(JSON.stringify(suggestions))) + ')">套用建議資料</button></div>';
+    box.innerHTML = html;
+    box.style.display = 'block';
+
+  } catch (err) {
+    console.error('OCR error:', err);
+    statusEl.textContent = 'OCR 辨識失敗：' + (err.message || '未知錯誤');
+    showToast('辨識失敗，請重試');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔍 自動辨識酒標';
+}
+
+function applySuggestions(jsonStr) {
+  const s = JSON.parse(jsonStr);
+  if (s.name && !document.getElementById('fName').value) document.getElementById('fName').value = s.name;
+  if (s.brand) document.getElementById('fBrand').value = s.brand;
+  if (s.region) document.getElementById('fRegion').value = s.region;
+  if (s.type) document.getElementById('fType').value = s.type;
+  if (s.year) document.getElementById('fYear').value = s.year;
+  document.getElementById('suggestionBox').style.display = 'none';
+  showToast('已套用建議');
+}
+
+// ===== QUICK IMPORT =====
+function openQuickImport() {
+  document.getElementById('importTextArea').value = '';
+  document.getElementById('importModal').classList.add('active');
+}
+function closeImportModal() {
+  document.getElementById('importModal').classList.remove('active');
+}
+
+function handleQuickImport() {
+  const text = document.getElementById('importTextArea').value.trim();
+  if (!text) { showToast('請輸入內容'); return; }
+
+  const blocks = text.split(/\n\s*\n/).filter(b => b.trim());
+  let count = 0;
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    const entry = { id: generateId(), createdAt: Date.now() };
+
+    for (const line of lines) {
+      const match = line.match(/^(.+?)[：:]\s*(.+)$/);
+      if (!match) continue;
+      const key = match[1].trim();
+      const val = match[2].trim();
+
+      if (/酒名|名稱|name/i.test(key)) entry.name = val;
+      else if (/酒類|類型|type/i.test(key)) {
+        // Try to match the type
+        const typeMap = {
+          'whisky': 'Whisky', '威士忌': 'Whisky',
+          'red wine': 'Red Wine', '紅酒': 'Red Wine',
+          'white wine': 'White Wine', '白酒': 'White Wine',
+          'champagne': 'Champagne/Sparkling', '香檳': 'Champagne/Sparkling',
+          'sake': 'Sake', '清酒': 'Sake',
+          'gin': 'Gin', '琴酒': 'Gin',
+          'rum': 'Rum', '冧酒': 'Rum',
+          'tequila': 'Tequila', '龍舌蘭': 'Tequila',
+          'cognac': 'Cognac', '干邑': 'Cognac',
+          'beer': 'Beer', '啤酒': 'Beer',
+          'cocktail': 'Cocktail', '雞尾酒': 'Cocktail',
+        };
+        entry.type = typeMap[val.toLowerCase()] || val;
+      }
+      else if (/品牌|酒廠|brand/i.test(key)) entry.brand = val;
+      else if (/產區|region/i.test(key)) entry.region = val;
+      else if (/年份|批次|year|batch/i.test(key)) entry.year = val;
+      else if (/價格|price/i.test(key)) entry.price = val.replace(/[^0-9.]/g, '');
+      else if (/評分|rating/i.test(key)) entry.rating = Math.min(10, Math.max(0, parseInt(val) || 0));
+      else if (/興趣|interest/i.test(key)) entry.interest = Math.min(5, Math.max(0, parseInt(val) || 0));
+      else if (/感想|notes|筆記/i.test(key)) entry.notes = val;
+      else if (/地點|location/i.test(key)) entry.location = val;
+      else if (/搭餐|pairing|food/i.test(key)) entry.pairing = val;
+      else if (/標籤|tags/i.test(key)) entry.tags = val;
+      else if (/日期|date/i.test(key)) entry.date = val;
+      else if (/收藏|favorite|fav/i.test(key)) entry.favorite = /是|yes|true|1/i.test(val);
+    }
+
+    if (entry.name) {
+      if (!entry.date) entry.date = new Date().toISOString().split('T')[0];
+      entries.unshift(entry);
+      count++;
+    }
+  }
+
+  closeImportModal();
+  renderList();
+  saveToCloud();
+  showToast(`已匯入 ${count} 筆紀錄`);
+}
+
+// ===== JSON IMPORT/EXPORT =====
+function exportJson() {
+  const data = { version: 1, exportDate: new Date().toISOString(), entries: entries };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wine-notes-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('已匯出 JSON 檔案');
+}
+
+function handleImportJson(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!data.entries || !Array.isArray(data.entries)) {
+        showToast('無效的匯入檔案');
+        return;
+      }
+      pendingImportData = data.entries;
+      // Show merge/replace dialog
+      document.getElementById('importModeOverlay').classList.add('active');
+    } catch(err) {
+      showToast('JSON 檔案格式錯誤');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+document.getElementById('importMergeBtn').addEventListener('click', () => {
+  if (pendingImportData) {
+    // Merge: add entries that don't have matching IDs
+    const existingIds = new Set(entries.map(e => e.id));
+    let count = 0;
+    for (const entry of pendingImportData) {
+      if (!existingIds.has(entry.id)) {
+        entries.push(entry);
+        count++;
+      }
+    }
+    renderList();
+    saveToCloud();
+    showToast(`已合併 ${count} 筆新紀錄`);
+  }
+  pendingImportData = null;
+  document.getElementById('importModeOverlay').classList.remove('active');
+});
+
+document.getElementById('importReplaceBtn').addEventListener('click', () => {
+  if (pendingImportData) {
+    entries = pendingImportData;
+    renderList();
+    saveToCloud();
+    showToast(`已取代，共 ${entries.length} 筆紀錄`);
+  }
+  pendingImportData = null;
+  document.getElementById('importModeOverlay').classList.remove('active');
+});
+
+// ===== DELETE =====
+function confirmDelete(id) {
+  closeDetailModal();
+  const entry = entries.find(e => e.id === id);
+  document.getElementById('confirmTitle').textContent = '刪除紀錄';
+  document.getElementById('confirmMsg').textContent = `確定要刪除「${entry?.name || ''}」嗎？`;
+  document.getElementById('confirmAction').onclick = () => {
+    entries = entries.filter(e => e.id !== id);
+    closeConfirm();
+    renderList();
+    saveToCloud();
+    showToast('已刪除');
+  };
+  document.getElementById('confirmOverlay').classList.add('active');
+}
+
+function confirmClearAll() {
+  document.getElementById('confirmTitle').textContent = '清除所有資料';
+  document.getElementById('confirmMsg').textContent = '確定要刪除所有品飲紀錄嗎？此操作無法復原。';
+  document.getElementById('confirmAction').onclick = () => {
+    entries = [];
+    closeConfirm();
+    renderList();
+    renderStats();
+    saveToCloud();
+    showToast('已清除所有資料');
+  };
+  document.getElementById('confirmOverlay').classList.add('active');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('active');
+}
+
+// ===== STATS =====
+function renderStats() {
+  const grid = document.getElementById('statsGrid');
+  const chart = document.getElementById('typeChart');
+
+  const total = entries.length;
+  const rated = entries.filter(e => e.rating > 0).length;
+  const avgRating = rated > 0 ? (entries.reduce((s,e) => s + (e.rating || 0), 0) / rated).toFixed(1) : '—';
+  const favCount = entries.filter(e => e.favorite).length;
+  const highInterest = entries.filter(e => (e.interest || 0) >= 4).length;
+
+  // Most common type
+  const typeCounts = {};
+  entries.forEach(e => {
+    if (e.type) typeCounts[e.type] = (typeCounts[e.type] || 0) + 1;
+  });
+  const topType = Object.entries(typeCounts).sort((a,b) => b[1] - a[1])[0];
+
+  grid.innerHTML = `
+    <div class="stat-card"><div class="stat-value">${total}</div><div class="stat-label">總紀錄數</div></div>
+    <div class="stat-card"><div class="stat-value">${avgRating}</div><div class="stat-label">平均評分</div></div>
+    <div class="stat-card"><div class="stat-value">${favCount}</div><div class="stat-label">收藏數</div></div>
+    <div class="stat-card"><div class="stat-value">${highInterest}</div><div class="stat-label">高興趣</div></div>
+    <div class="stat-card"><div class="stat-value">${rated}</div><div class="stat-label">已評分</div></div>
+    <div class="stat-card"><div class="stat-value">${topType ? getTypeLabel(topType[0]) : '—'}</div><div class="stat-label">最常飲用</div></div>
+  `;
+
+  // Type chart
+  if (Object.keys(typeCounts).length === 0) {
+    chart.innerHTML = '<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px;">尚無資料</p>';
+    return;
+  }
+  const maxCount = Math.max(...Object.values(typeCounts));
+  const sorted = Object.entries(typeCounts).sort((a,b) => b[1] - a[1]);
+  chart.innerHTML = sorted.map(([type, count]) => `
+    <div class="chart-bar-row">
+      <span class="chart-label">${getTypeLabel(type)}</span>
+      <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${(count/maxCount*100)}%"></div></div>
+      <span class="chart-count">${count}</span>
+    </div>
+  `).join('');
+}
+
+// ===== UTILITIES =====
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function showToast(msg) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
+}
+
+// ===== INIT =====
+initRatingInput();
+initInterestInput();
+loadFromCloud();
+
+// Close modals on overlay click
+['formModal', 'detailModal', 'importModal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      document.getElementById(id).classList.remove('active');
+    }
+  });
+});
+</script>
+</body>
+</html>
