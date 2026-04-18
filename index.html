@@ -1133,6 +1133,7 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
             <div class="photo-actions">
               <button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('photoInput').click()">📷 拍照/選擇</button>
               <button type="button" class="btn btn-sm btn-secondary" id="analyzeBtn" style="display:none" onclick="ocrAnalyzeLabel()">🔍 自動辨識酒標</button>
+              <button type="button" class="btn btn-sm btn-secondary" id="autoImgBtn" onclick="autoFetchOfficialImage()">🌐 自動搜圖</button>
             <div class="ocr-progress" id="ocrProgress">
               <div class="ocr-progress-bar"><div class="ocr-progress-fill" id="ocrProgressFill"></div></div>
               <div class="ocr-status" id="ocrStatus">準備中…</div>
@@ -1142,6 +1143,7 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
             </div>
           </div>
           <div id="suggestionBox" style="display:none"></div>
+          <div id="officialPhotoPreview" style="display:none"></div>
         </div>
 
         <!-- Name & Type -->
@@ -1333,6 +1335,11 @@ const firebaseConfig = {
 const USER_ID = "eric-chiu-hk";
 const DOC_PATH = `wine_notes/${USER_ID}`;
 
+// ===== GOOGLE CUSTOM SEARCH (for auto-fetching wine bottle images) =====
+// Reuses the same Google API key as Firebase (Custom Search API must be enabled in Google Cloud Console)
+const GOOGLE_SEARCH_API_KEY = "AIzaSyB97UubOrPM60uo0ZQH00UP-RMysU3M6uM";
+const GOOGLE_SEARCH_CX = "f01b1597eb44246f3";
+
 let db = null;
 let firebaseReady = false;
 
@@ -1353,6 +1360,7 @@ let formRating = 0;
 let formInterest = 0;
 let formFavorite = false;
 let currentPhotoBase64 = null;
+let currentOfficialPhotoUrl = null;  // Auto-fetched official wine image URL
 let pendingImportData = null;
 
 // ===== SYNC =====
@@ -1605,7 +1613,9 @@ function renderList() {
 
   container.innerHTML = list.map(entry => {
     const tags = (entry.tags || '').split(',').filter(t => t.trim()).map(t => `<span class="wine-card-tag">${t.trim()}</span>`).join('');
-    const hasPhoto = entry.photo ? `<img class="wine-card-thumb" src="${entry.photo}" alt="">` : '';
+    // Prefer user-uploaded photo; fall back to auto-searched official photo
+    const thumbSrc = entry.photo || entry.officialPhoto || '';
+    const hasPhoto = thumbSrc ? `<img class="wine-card-thumb" src="${thumbSrc}" alt="" onerror="this.style.display='none'">` : '';
     return `
     <div class="wine-card" onclick="openDetail('${entry.id}')">
       <div class="wine-card-header">
@@ -1643,8 +1653,13 @@ function openDetail(id) {
 
   let html = '';
 
-  if (entry.photo) {
-    html += `<img class="detail-photo" src="${entry.photo}" alt="酒標">`;
+  const detailPhotoSrc = entry.photo || entry.officialPhoto;
+  if (detailPhotoSrc) {
+    const isOfficial = !entry.photo && entry.officialPhoto;
+    html += `<img class="detail-photo" src="${detailPhotoSrc}" alt="酒標" onerror="this.style.display='none'">`;
+    if (isOfficial && entry.officialPhotoSource) {
+      html += `<div style="font-size:11px;color:var(--text-faint);text-align:center;margin-top:-8px;margin-bottom:8px;">🌐 來自 ${escHtml(entry.officialPhotoSource)}</div>`;
+    }
   }
 
   const fields = [
@@ -1679,9 +1694,10 @@ function openDetail(id) {
   }
 
   html += `
-    <div class="detail-actions">
-      <button class="btn btn-secondary" style="flex:1" onclick="openEditForm('${entry.id}')">✏️ 編輯</button>
-      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete('${entry.id}')">🗑 刪除</button>
+    <div class="detail-actions" style="flex-wrap:wrap;">
+      <button class="btn btn-secondary" style="flex:1;min-width:90px;" onclick="openEditForm('${entry.id}')">✏️ 編輯</button>
+      <button class="btn btn-secondary" style="flex:1;min-width:90px;" onclick="reSearchImageForEntry('${entry.id}')">🌐 重搜圖片</button>
+      <button class="btn btn-danger" style="flex:1;min-width:90px;" onclick="confirmDelete('${entry.id}')">🗑 刪除</button>
     </div>`;
 
   body.innerHTML = html;
@@ -1758,6 +1774,9 @@ function resetForm() {
   document.getElementById('analyzeBtn').style.display = 'none';
   document.getElementById('removePhotoBtn').style.display = 'none';
   document.getElementById('suggestionBox').style.display = 'none';
+  currentOfficialPhotoUrl = null;
+  const ofp = document.getElementById('officialPhotoPreview');
+  if (ofp) { ofp.style.display = 'none'; ofp.innerHTML = ''; }
   document.getElementById('formFavHeart').textContent = '♡';
   document.getElementById('formFavHeart').classList.remove('active');
   document.getElementById('formFavText').textContent = '加入收藏';
@@ -1805,6 +1824,15 @@ function openEditForm(id) {
     document.getElementById('removePhotoBtn').style.display = 'block';
   }
 
+  // Restore previously saved official (auto-searched) photo
+  if (entry.officialPhoto) {
+    currentOfficialPhotoUrl = entry.officialPhoto;
+    renderOfficialPhotoPreview({
+      url: entry.officialPhoto,
+      displayLink: entry.officialPhotoSource || ''
+    });
+  }
+
   updateRatingDisplay();
   updateInterestDisplay();
   if (formFavorite) {
@@ -1840,8 +1868,19 @@ function handleFormSubmit(e) {
     tags: document.getElementById('fTags').value.trim(),
     favorite: formFavorite,
     photo: currentPhotoBase64 || '',
+    officialPhoto: currentOfficialPhotoUrl || (id ? (entries.find(e2 => e2.id === id)?.officialPhoto || '') : ''),
+    officialPhotoSource: (id ? (entries.find(e2 => e2.id === id)?.officialPhotoSource || '') : ''),
     createdAt: id ? (entries.find(e2 => e2.id === id)?.createdAt || Date.now()) : Date.now()
   };
+
+  // If auto-search was re-run during edit, update the source too
+  if (currentOfficialPhotoUrl && id) {
+    const existing = entries.find(e2 => e2.id === id);
+    if (existing && existing.officialPhoto !== currentOfficialPhotoUrl) {
+      // Source will be set by the search call; if missing, leave blank
+      entryData.officialPhotoSource = entryData.officialPhotoSource || '';
+    }
+  }
 
   if (id) {
     const idx = entries.findIndex(e2 => e2.id === id);
@@ -1883,6 +1922,185 @@ function handlePhoto(e) {
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+// ===== AUTO-FETCH OFFICIAL WINE IMAGE (Google Custom Search) =====
+// Preferred official/retailer domains — results from these rank higher
+const PREFERRED_IMAGE_DOMAINS = [
+  // Large wine retailers (usually highest quality product shots)
+  'vivino.com', 'wine-searcher.com', 'wine.com', 'totalwine.com',
+  'masterofmalt.com', 'thewhiskyexchange.com', 'winebid.com',
+  'klwines.com', 'bbr.com', 'majestic.co.uk',
+  // HK / Asia retailers
+  'watsonswine.com', 'wellcome.com.hk', 'parknshop.com',
+  // Generic official indicators
+  'official', 'chateau', 'domaine', 'winery', 'distillery'
+];
+
+function scoreImageResult(item) {
+  let score = 0;
+  const url = (item.link || '').toLowerCase();
+  const displayLink = (item.displayLink || '').toLowerCase();
+  const title = (item.title || '').toLowerCase();
+
+  // Prefer known retailer / official domains
+  for (const domain of PREFERRED_IMAGE_DOMAINS) {
+    if (displayLink.includes(domain) || url.includes(domain)) {
+      score += 10;
+      break;
+    }
+  }
+  // Prefer "bottle" / "product" indicators
+  if (/bottle|product|official/.test(title) || /bottle|product/.test(url)) score += 3;
+  // Prefer larger images
+  if (item.image) {
+    const w = item.image.width || 0;
+    const h = item.image.height || 0;
+    if (w >= 400 && h >= 400) score += 5;
+    else if (w >= 250 && h >= 250) score += 2;
+    // Prefer portrait (bottles are taller than wide)
+    if (h > w) score += 2;
+  }
+  // Penalize thumbnails / tiny images
+  if (item.image && (item.image.width < 150 || item.image.height < 150)) score -= 5;
+  return score;
+}
+
+async function searchOfficialImage(name, brand, year, type) {
+  if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) {
+    throw new Error('Google Custom Search 未設定');
+  }
+  // Build query — keep it simple and descriptive
+  const parts = [name, brand, year].filter(p => p && p.trim()).map(p => p.trim());
+  let query = parts.join(' ');
+  // Add a product-type hint in English for better results
+  const typeHint = ({
+    'Whisky': 'whisky bottle', 'Wine': 'wine bottle',
+    'RedWine': 'red wine bottle', 'WhiteWine': 'white wine bottle',
+    'Sake': 'sake bottle', 'Champagne': 'champagne bottle',
+    'Beer': 'beer bottle', 'Spirit': 'liquor bottle'
+  })[type] || 'bottle';
+  query = `${query} ${typeHint}`;
+
+  const params = new URLSearchParams({
+    key: GOOGLE_SEARCH_API_KEY,
+    cx: GOOGLE_SEARCH_CX,
+    q: query,
+    searchType: 'image',
+    num: '10',
+    safe: 'active',
+    imgSize: 'medium'
+  });
+  const url = `https://www.googleapis.com/customsearch/v1?${params.toString()}`;
+
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    const errText = await resp.text();
+    let msg = `搜圖失敗 (${resp.status})`;
+    try {
+      const errJson = JSON.parse(errText);
+      if (errJson.error && errJson.error.message) msg += ': ' + errJson.error.message;
+    } catch(_) {}
+    throw new Error(msg);
+  }
+  const data = await resp.json();
+  const items = data.items || [];
+  if (items.length === 0) throw new Error('找不到相符圖片');
+
+  // Rank by our scoring and return the best one
+  items.sort((a, b) => scoreImageResult(b) - scoreImageResult(a));
+  const best = items[0];
+  return {
+    url: best.link,
+    thumbnailUrl: best.image ? best.image.thumbnailLink : best.link,
+    sourcePage: best.image ? best.image.contextLink : '',
+    title: best.title,
+    displayLink: best.displayLink
+  };
+}
+
+// Called by "自動搜圖" button in the form
+async function autoFetchOfficialImage() {
+  const name = document.getElementById('fName').value.trim();
+  const brand = document.getElementById('fBrand').value.trim();
+  const year = document.getElementById('fYear').value.trim();
+  const type = document.getElementById('fType').value;
+
+  if (!name && !brand) {
+    showToast('請先填酒名或品牌');
+    return;
+  }
+
+  const btn = document.getElementById('autoImgBtn');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔍 搜尋中…';
+
+  try {
+    const result = await searchOfficialImage(name, brand, year, type);
+    currentOfficialPhotoUrl = result.url;
+    renderOfficialPhotoPreview(result);
+    showToast('已找到官方圖片 ✨');
+  } catch(err) {
+    console.error('搜圖失敗:', err);
+    showToast(err.message || '搜圖失敗');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+function renderOfficialPhotoPreview(result) {
+  const box = document.getElementById('officialPhotoPreview');
+  if (!box) return;
+  if (!result || !currentOfficialPhotoUrl) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  const sourceLabel = result.displayLink || '';
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--bg-soft,#f8f6f2);border-radius:8px;margin-top:8px;">
+      <img src="${result.url}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:6px;background:#eee;" onerror="this.style.opacity=0.3">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">🌐 自動搜尋結果</div>
+        <div style="font-size:11px;color:var(--text-faint);word-break:break-all;margin-bottom:6px;">來源：${escHtml(sourceLabel)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="autoFetchOfficialImage()">🔄 再搜</button>
+          <button type="button" class="btn btn-sm btn-ghost" onclick="clearOfficialPhoto()">✕ 移除</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function clearOfficialPhoto() {
+  currentOfficialPhotoUrl = null;
+  renderOfficialPhotoPreview(null);
+}
+
+// Re-search from card/detail view (event.stopPropagation needed for card clicks)
+async function reSearchImageForEntry(id, ev) {
+  if (ev) ev.stopPropagation();
+  const entry = entries.find(e => e.id === id);
+  if (!entry) return;
+  showToast('搜尋中…');
+  try {
+    const result = await searchOfficialImage(entry.name, entry.brand, entry.year, entry.type);
+    entry.officialPhoto = result.url;
+    entry.officialPhotoSource = result.displayLink || '';
+    renderList();
+    saveToCloud();
+    showToast('已更新圖片 ✨');
+    // If detail modal is open for this entry, refresh it
+    const detailModal = document.getElementById('detailModal');
+    if (detailModal && detailModal.classList.contains('active')) {
+      openDetail(id);
+    }
+  } catch(err) {
+    console.error('重搜失敗:', err);
+    showToast(err.message || '搜圖失敗');
+  }
 }
 
 function removePhoto() {
