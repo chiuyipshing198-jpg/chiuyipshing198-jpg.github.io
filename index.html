@@ -1999,7 +1999,18 @@ async function searchOfficialImage(name, brand, year, type) {
     let msg = `搜圖失敗 (${resp.status})`;
     try {
       const errJson = JSON.parse(errText);
-      if (errJson.error && errJson.error.message) msg += ': ' + errJson.error.message;
+      if (errJson.error && errJson.error.message) {
+        const em = errJson.error.message;
+        if (em.includes('does not have the access')) {
+          msg = '未啟用 Custom Search JSON API：請到 Google Cloud Console 啟用';
+        } else if (em.includes('API key not valid')) {
+          msg = 'API key 無效或被限制';
+        } else if (em.includes('Quota exceeded') || em.includes('quota')) {
+          msg = '今日搜圖配額用完 (100次/日)，明日再試';
+        } else {
+          msg += ': ' + em;
+        }
+      }
     } catch(_) {}
     throw new Error(msg);
   }
