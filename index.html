@@ -1335,10 +1335,9 @@ const firebaseConfig = {
 const USER_ID = "eric-chiu-hk";
 const DOC_PATH = `wine_notes/${USER_ID}`;
 
-// ===== GOOGLE CUSTOM SEARCH (for auto-fetching wine bottle images) =====
-// Reuses the same Google API key as Firebase (Custom Search API must be enabled in Google Cloud Console)
-const GOOGLE_SEARCH_API_KEY = "AIzaSyBnPcUUZi7IVEA6H5L-U0wUAGqKi2EFeEg";
-const GOOGLE_SEARCH_CX = "f01b1597eb44246f3";
+// ===== SERPER.DEV IMAGE SEARCH (for auto-fetching wine bottle images) =====
+// Free tier: 2,500 queries total. Get key at https://serper.dev
+const SERPER_API_KEY = "7b93a0a0ce73e2499bef2dd50177daac3b475e61";
 
 let db = null;
 let firebaseReady = false;
@@ -1967,13 +1966,11 @@ function scoreImageResult(item) {
 }
 
 async function searchOfficialImage(name, brand, year, type) {
-  if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) {
-    throw new Error('Google Custom Search 未設定');
-  }
+  if (!SERPER_API_KEY) throw new Error('搜圖服務未設定');
+
   // Build query — keep it simple and descriptive
   const parts = [name, brand, year].filter(p => p && p.trim()).map(p => p.trim());
   let query = parts.join(' ');
-  // Add a product-type hint in English for better results
   const typeHint = ({
     'Whisky': 'whisky bottle', 'Wine': 'wine bottle',
     'RedWine': 'red wine bottle', 'WhiteWine': 'white wine bottle',
@@ -1982,40 +1979,35 @@ async function searchOfficialImage(name, brand, year, type) {
   })[type] || 'bottle';
   query = `${query} ${typeHint}`;
 
-  const params = new URLSearchParams({
-    key: GOOGLE_SEARCH_API_KEY,
-    cx: GOOGLE_SEARCH_CX,
-    q: query,
-    searchType: 'image',
-    num: '10',
-    safe: 'active',
-    imgSize: 'medium'
+  const resp = await fetch('https://google.serper.dev/images', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': SERPER_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ q: query, num: 10, safe: 'active' })
   });
-  const url = `https://www.googleapis.com/customsearch/v1?${params.toString()}`;
 
-  const resp = await fetch(url);
   if (!resp.ok) {
     const errText = await resp.text();
     let msg = `搜圖失敗 (${resp.status})`;
-    try {
-      const errJson = JSON.parse(errText);
-      if (errJson.error && errJson.error.message) {
-        const em = errJson.error.message;
-        if (em.includes('does not have the access')) {
-          msg = '未啟用 Custom Search JSON API：請到 Google Cloud Console 啟用';
-        } else if (em.includes('API key not valid')) {
-          msg = 'API key 無效或被限制';
-        } else if (em.includes('Quota exceeded') || em.includes('quota')) {
-          msg = '今日搜圖配額用完 (100次/日)，明日再試';
-        } else {
-          msg += ': ' + em;
-        }
-      }
-    } catch(_) {}
+    if (resp.status === 401 || resp.status === 403) msg = 'API key 無效';
+    else if (resp.status === 429) msg = '搜圖配額用完';
+    else {
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.message) msg += ': ' + errJson.message;
+      } catch(_) {}
+    }
     throw new Error(msg);
   }
   const data = await resp.json();
-  const items = data.items || [];
+  const items = (data.images || []).map(img => ({
+    link: img.imageUrl,
+    image: { width: img.imageWidth, height: img.imageHeight, thumbnailLink: img.thumbnailUrl, contextLink: img.link },
+    title: img.title || '',
+    displayLink: img.source || (img.domain || '')
+  }));
   if (items.length === 0) throw new Error('找不到相符圖片');
 
   // Rank by our scoring and return the best one
@@ -2023,8 +2015,8 @@ async function searchOfficialImage(name, brand, year, type) {
   const best = items[0];
   return {
     url: best.link,
-    thumbnailUrl: best.image ? best.image.thumbnailLink : best.link,
-    sourcePage: best.image ? best.image.contextLink : '',
+    thumbnailUrl: best.image.thumbnailLink || best.link,
+    sourcePage: best.image.contextLink || '',
     title: best.title,
     displayLink: best.displayLink
   };
