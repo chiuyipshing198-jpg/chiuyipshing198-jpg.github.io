@@ -354,12 +354,21 @@ body {
   color: var(--text-faint);
 }
 .wine-card-thumb {
-  width: 44px;
-  height: 44px;
+  width: 72px;
+  height: 96px;
   border-radius: var(--radius-md);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--surface-3);
+}
+.wine-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.wine-card-layout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 /* ===== EMPTY STATE ===== */
@@ -1614,30 +1623,35 @@ function renderList() {
     const tags = (entry.tags || '').split(',').filter(t => t.trim()).map(t => `<span class="wine-card-tag">${t.trim()}</span>`).join('');
     // Prefer user-uploaded photo; fall back to auto-searched official photo
     const thumbSrc = entry.photo || entry.officialPhoto || '';
-    const hasPhoto = thumbSrc ? `<img class="wine-card-thumb" src="${thumbSrc}" alt="" onerror="this.style.display='none'">` : '';
+    // Always render a thumb slot. If image fails to load, replace with placeholder background (keeps layout consistent).
+    const thumbHtml = thumbSrc
+      ? `<img class="wine-card-thumb" src="${thumbSrc}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null; this.replaceWith(Object.assign(document.createElement('div'),{className:'wine-card-thumb'}))">`
+      : `<div class="wine-card-thumb" aria-hidden="true"></div>`;
     return `
     <div class="wine-card" onclick="openDetail('${entry.id}')">
-      <div class="wine-card-header">
-        <div style="flex:1;">
-          <div class="wine-card-title">${escHtml(entry.name || '未命名')}</div>
-          <div class="wine-card-meta">
-            ${entry.type ? `<span class="type-badge ${getTypeBadgeClass(entry.type)}">${getTypeLabel(entry.type)}</span>` : ''}
-            ${entry.brand ? `<span style="font-size:11px;color:var(--text-faint)">${escHtml(entry.brand)}</span>` : ''}
-            ${entry.date ? `<span class="wine-card-date">${entry.date}</span>` : ''}
+      <div class="wine-card-layout">
+        ${thumbHtml}
+        <div class="wine-card-body">
+          <div class="wine-card-header">
+            <div style="flex:1;min-width:0;">
+              <div class="wine-card-title">${escHtml(entry.name || '未命名')}</div>
+              <div class="wine-card-meta">
+                ${entry.type ? `<span class="type-badge ${getTypeBadgeClass(entry.type)}">${getTypeLabel(entry.type)}</span>` : ''}
+                ${entry.brand ? `<span style="font-size:11px;color:var(--text-faint)">${escHtml(entry.brand)}</span>` : ''}
+                ${entry.date ? `<span class="wine-card-date">${entry.date}</span>` : ''}
+              </div>
+            </div>
+            <span class="wine-card-fav ${entry.favorite ? 'active' : ''}">${entry.favorite ? '♥' : ''}</span>
           </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${hasPhoto}
-          <span class="wine-card-fav ${entry.favorite ? 'active' : ''}">${entry.favorite ? '♥' : ''}</span>
+          <div class="wine-card-rating">
+            ${renderStars(entry.rating || 0)}
+            <div class="interest-dots">${renderInterestDots(entry.interest || 0)}</div>
+          </div>
+          ${entry.notes ? `<div class="wine-card-notes">${escHtml(entry.notes)}</div>` : ''}
+          ${tags ? `<div class="wine-card-tags">${tags}</div>` : ''}
+          ${entry.price ? `<div style="font-size:11px;color:var(--gold);margin-top:4px;">HK$ ${escHtml(String(entry.price))}</div>` : ''}
         </div>
       </div>
-      <div class="wine-card-rating">
-        ${renderStars(entry.rating || 0)}
-        <div class="interest-dots">${renderInterestDots(entry.interest || 0)}</div>
-      </div>
-      ${entry.notes ? `<div class="wine-card-notes">${escHtml(entry.notes)}</div>` : ''}
-      ${tags ? `<div class="wine-card-tags">${tags}</div>` : ''}
-      ${entry.price ? `<div style="font-size:11px;color:var(--gold);margin-top:4px;">HK$ ${escHtml(String(entry.price))}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -1655,7 +1669,7 @@ function openDetail(id) {
   const detailPhotoSrc = entry.photo || entry.officialPhoto;
   if (detailPhotoSrc) {
     const isOfficial = !entry.photo && entry.officialPhoto;
-    html += `<img class="detail-photo" src="${detailPhotoSrc}" alt="酒標" onerror="this.style.display='none'">`;
+    html += `<img class="detail-photo" src="${detailPhotoSrc}" alt="酒標" referrerpolicy="no-referrer" onerror="this.style.display='none'">`;
     if (isOfficial && entry.officialPhotoSource) {
       html += `<div style="font-size:11px;color:var(--text-faint);text-align:center;margin-top:-8px;margin-bottom:8px;">🌐 來自 ${escHtml(entry.officialPhotoSource)}</div>`;
     }
