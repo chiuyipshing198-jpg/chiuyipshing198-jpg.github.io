@@ -1047,6 +1047,18 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-title">AI 推薦</div>
+      <div class="settings-item" onclick="copyForAIRecommendation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>
+        <div class="settings-item-text">
+          <div class="settings-item-title">複製推薦說明</div>
+          <div class="settings-item-desc">複製全部紀錄至剪貼簿，貼到 AI 分析你喜好並推薦下一支</div>
+        </div>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-title">匯出</div>
       <div class="settings-item" onclick="exportJson()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -2505,6 +2517,179 @@ function handleQuickImport() {
 }
 
 // ===== JSON IMPORT/EXPORT =====
+// ===== AI RECOMMENDATION TEXT EXPORT =====
+function buildAIRecommendationText() {
+  if (!entries || entries.length === 0) {
+    return null;
+  }
+
+  // Sort: favorites first, then by rating desc, then by interest desc
+  const sorted = [...entries].sort((a, b) => {
+    if ((b.favorite?1:0) !== (a.favorite?1:0)) return (b.favorite?1:0) - (a.favorite?1:0);
+    if ((b.rating||0) !== (a.rating||0)) return (b.rating||0) - (a.rating||0);
+    return (b.interest||0) - (a.interest||0);
+  });
+
+  // Aggregate some stats to help the AI
+  const typeCount = {};
+  const regionCount = {};
+  const brandCount = {};
+  let totalRating = 0, ratedCount = 0;
+  sorted.forEach(e => {
+    if (e.type) typeCount[getTypeLabel(e.type)] = (typeCount[getTypeLabel(e.type)]||0) + 1;
+    if (e.region) regionCount[e.region] = (regionCount[e.region]||0) + 1;
+    if (e.brand) brandCount[e.brand] = (brandCount[e.brand]||0) + 1;
+    if (e.rating) { totalRating += e.rating; ratedCount++; }
+  });
+  const avgRating = ratedCount ? (totalRating/ratedCount).toFixed(1) : 'N/A';
+
+  const topRegions = Object.entries(regionCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([r,n])=>`${r}(${n})`).join('、') || '（無）';
+  const topBrands = Object.entries(brandCount).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([r,n])=>`${r}(${n})`).join('、') || '（無）';
+  const typesLine = Object.entries(typeCount).map(([t,n])=>`${t} ${n}支`).join('、');
+
+  let out = '';
+  out += '# 我的品酒筆記\n\n';
+  out += `共 ${sorted.length} 支酒 · 平均評分 ${avgRating}/10\n`;
+  out += `酒類分佈：${typesLine}\n`;
+  out += `常飲產區 Top3：${topRegions}\n`;
+  out += `常飲品牌 Top5：${topBrands}\n\n`;
+  out += '---\n\n## 詳細紀錄\n\n';
+
+  sorted.forEach((e, i) => {
+    const parts = [];
+    parts.push(`${i+1}. ${e.name || '未命名'}`);
+    if (e.type) parts.push(`[${getTypeLabel(e.type)}]`);
+    if (e.rating) parts.push(`★${e.rating}/10`);
+    if (e.interest) parts.push(`興趣${e.interest}/5`);
+    if (e.favorite) parts.push('❤️收藏');
+    out += parts.join(' ') + '\n';
+
+    const meta = [];
+    if (e.brand) meta.push(`品牌: ${e.brand}`);
+    if (e.region) meta.push(`產區: ${e.region}`);
+    if (e.year) meta.push(`年份: ${e.year}`);
+    if (e.price) meta.push(`價錢: HK$${e.price}`);
+    if (e.date) meta.push(`品飲: ${e.date}`);
+    if (meta.length) out += '   ' + meta.join(' | ') + '\n';
+
+    if (e.notes) out += `   感想: ${e.notes}\n`;
+    if (e.pairing) out += `   搭餐: ${e.pairing}\n`;
+    if (e.tags) out += `   標籤: ${e.tags}\n`;
+    out += '\n';
+  });
+
+  out += '---\n\n## 請你分析並推薦\n\n';
+  out += '根據以上我的品酒紀錄，請：\n\n';
+  out += '1. **分析我的偏好模式**：我傾向喜歡什麼風格、產區、類型的酒？什麼特質是我給高分的共通點？\n';
+  out += '2. **推薦 5 支我應該試的下一支酒**，每支請包括：\n';
+  out += '   - 酒名（精確到可以在酒商找到的款式）\n';
+  out += '   - 類型與產區\n';
+  out += '   - 大約價錢範圍（HKD）\n';
+  out += '   - 推薦原因（為何根據我的偏好會喜歡）\n';
+  out += '   - 在香港哪裡可以買到（Watson\'s Wine、city\'super、wine-searcher 等）\n';
+  out += '3. **如果有的話**，指出我紀錄裡欠缺但應該試試的類型或產區（例如我從未試過的地區）\n\n';
+  out += '建議精簡但具體，避免太冗長。';
+
+  return out;
+}
+
+async function copyForAIRecommendation() {
+  const text = buildAIRecommendationText();
+  if (!text) {
+    showToast('還未有任何紀錄，先新增幾支酒吧');
+    return;
+  }
+
+  // Try modern Clipboard API first, fall back to execCommand
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch (err) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e2) {
+      console.error('Copy failed:', e2);
+    }
+  }
+
+  if (copied) {
+    showRecommendPrompt(text);
+  } else {
+    // Show fallback modal with selectable text
+    showRecommendFallback(text);
+  }
+}
+
+function showRecommendPrompt(text) {
+  const wineCount = entries.length;
+  // Build modal showing success + quick links to AI tools
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.style.zIndex = '10000';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width:480px;">
+      <div class="modal-header">
+        <h3>✨ 推薦說明已複製</h3>
+        <button class="btn-close" onclick="this.closest('.modal').remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:12px;color:var(--text);">
+          已複製你 <strong>${wineCount} 支</strong> 酒的紀錄同推薦請求到剪貼簿。
+        </p>
+        <p style="margin-bottom:16px;color:var(--text-muted);font-size:13px;">
+          揀一個 AI 工具打開，<strong>長按輸入框貼上</strong>，等佢分析你嘅喜好同推薦下一支。
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <a href="https://www.perplexity.ai/" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;text-decoration:none;padding:12px;">Perplexity</a>
+          <a href="https://chat.openai.com/" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;text-decoration:none;padding:12px;">ChatGPT</a>
+          <a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;text-decoration:none;padding:12px;">Claude</a>
+          <a href="https://gemini.google.com/" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;text-decoration:none;padding:12px;">Gemini</a>
+        </div>
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-size:13px;color:var(--text-muted);">👁 預覽已複製的內容</summary>
+          <textarea readonly style="width:100%;height:180px;margin-top:8px;padding:10px;font-size:11px;font-family:monospace;background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:8px;resize:vertical;">${escHtml(text)}</textarea>
+        </details>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  showToast('已複製 ✨');
+}
+
+function showRecommendFallback(text) {
+  // If clipboard copy failed, show modal with selectable text for manual copy
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.style.zIndex = '10000';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width:480px;">
+      <div class="modal-header">
+        <h3>手動複製</h3>
+        <button class="btn-close" onclick="this.closest('.modal').remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:10px;color:var(--text-muted);font-size:13px;">
+          瀏覽器未授權自動複製。長按下面文字框，全選→複製，然後貼到 AI 工具。
+        </p>
+        <textarea readonly onclick="this.select()" style="width:100%;height:260px;padding:10px;font-size:12px;font-family:monospace;background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:8px;">${escHtml(text)}</textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <a href="https://www.perplexity.ai/" target="_blank" rel="noopener" class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none;padding:10px;">開 Perplexity</a>
+          <a href="https://chat.openai.com/" target="_blank" rel="noopener" class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none;padding:10px;">開 ChatGPT</a>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
 function exportJson() {
   const data = { version: 1, exportDate: new Date().toISOString(), entries: entries };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
