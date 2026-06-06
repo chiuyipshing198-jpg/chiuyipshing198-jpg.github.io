@@ -1004,7 +1004,7 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
       <button class="chip" data-filter="Whisky">威士忌</button>
       <button class="chip" data-filter="Red Wine">紅酒</button>
       <button class="chip" data-filter="White Wine">白酒</button>
-      <button class="chip" data-filter="Champagne/Sparkling">香檳</button>
+      <button class="chip" data-filter="Champagne/Sparkling">香檳/氣泡酒</button>
       <button class="chip" data-filter="Sake">清酒</button>
       <button class="chip" data-filter="Gin">琴酒</button>
       <button class="chip" data-filter="Beer">啤酒</button>
@@ -1180,7 +1180,7 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
               <option value="Whisky">Whisky 威士忌</option>
               <option value="Red Wine">Red Wine 紅酒</option>
               <option value="White Wine">White Wine 白酒</option>
-              <option value="Champagne/Sparkling">Champagne 香檳</option>
+              <option value="Champagne/Sparkling">Champagne / Sparkling 香檳/氣泡酒</option>
               <option value="Sake">Sake 清酒</option>
               <option value="Gin">Gin 琴酒</option>
               <option value="Rum">Rum 冧酒</option>
@@ -1580,7 +1580,7 @@ function getTypeBadgeClass(type) {
 function getTypeLabel(type) {
   const map = {
     'Whisky': '威士忌', 'Red Wine': '紅酒', 'White Wine': '白酒',
-    'Champagne/Sparkling': '香檳', 'Sake': '清酒', 'Gin': '琴酒',
+    'Champagne/Sparkling': '香檳/氣泡酒', 'Sake': '清酒', 'Gin': '琴酒',
     'Rum': '冧酒', 'Tequila': '龍舌蘭', 'Cognac': '干邑',
     'Beer': '啤酒', 'Cocktail': '雞尾酒', 'Other': '其他'
   };
@@ -2478,7 +2478,7 @@ function handleQuickImport() {
           'whisky': 'Whisky', '威士忌': 'Whisky',
           'red wine': 'Red Wine', '紅酒': 'Red Wine',
           'white wine': 'White Wine', '白酒': 'White Wine',
-          'champagne': 'Champagne/Sparkling', '香檳': 'Champagne/Sparkling',
+          'champagne': 'Champagne/Sparkling', '香檳': 'Champagne/Sparkling', '氣泡酒': 'Champagne/Sparkling', 'sparkling': 'Champagne/Sparkling', 'prosecco': 'Champagne/Sparkling', 'cava': 'Champagne/Sparkling',
           'sake': 'Sake', '清酒': 'Sake',
           'gin': 'Gin', '琴酒': 'Gin',
           'rum': 'Rum', '冧酒': 'Rum',
