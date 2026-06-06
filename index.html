@@ -694,6 +694,115 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
 }
 .fab-backdrop.active { display: block; }
 
+/* ===== FLAVOR CHIPS ===== */
+.flavor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+.flavor-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.flavor-chip:hover { background: var(--surface); color: var(--text); }
+.flavor-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.flavor-chips-section-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 10px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== REGION TREE ===== */
+.region-tree { margin-bottom: 16px; }
+.region-country {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.region-country-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.region-country-header:hover { background: var(--surface-2); }
+.region-caret {
+  width: 10px;
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.region-country.expanded .region-caret { transform: rotate(90deg); }
+.region-country-name {
+  flex-shrink: 0;
+  min-width: 80px;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.region-country-bar {
+  flex: 1;
+  height: 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.region-country-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  min-width: 2px;
+}
+.region-country-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  width: 24px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.region-subregions {
+  display: none;
+  padding: 4px 12px 10px 30px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.region-country.expanded .region-subregions { display: block; }
+.region-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.region-sub-row .dot { color: var(--text-faint); }
+.region-sub-count {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 /* ===== STATS ===== */
 .stats-grid {
   display: grid;
@@ -1019,6 +1128,12 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
     <div class="stats-grid" id="statsGrid"></div>
     <h3 style="font-size:15px;font-weight:600;margin-bottom:10px;color:var(--text-muted);">酒類分佈</h3>
     <div class="type-chart" id="typeChart"></div>
+
+    <h3 style="font-size:15px;font-weight:600;margin:18px 0 10px;color:var(--text-muted);">產地分佈</h3>
+    <div class="region-tree" id="regionTree"></div>
+
+    <h3 style="font-size:15px;font-weight:600;margin:18px 0 10px;color:var(--text-muted);">風味分佈</h3>
+    <div class="type-chart" id="flavorChart"></div>
   </div>
 
   <!-- Tools View -->
@@ -1175,7 +1290,7 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">酒類</label>
-            <select class="form-input" id="fType">
+            <select class="form-input" id="fType" onchange="renderFlavorChips()">
               <option value="">選擇類型</option>
               <option value="Whisky">Whisky 威士忌</option>
               <option value="Red Wine">Red Wine 紅酒</option>
@@ -1253,8 +1368,14 @@ select.form-input { -webkit-appearance: none; appearance: none; background-image
         </div>
 
         <div class="form-group">
+          <label class="form-label">風味（可揀多個）</label>
+          <div class="flavor-chips" id="flavorChips"></div>
+          <input type="text" class="form-input" id="fFlavors" placeholder="或自己加（逗號分隔）例：麥芽, 蒙若香" style="margin-top:6px;">
+        </div>
+
+        <div class="form-group">
           <label class="form-label">標籤（逗號分隔）</label>
-          <input type="text" class="form-input" id="fTags" placeholder="例：泥煤, 重口味, 送禮">
+          <input type="text" class="form-input" id="fTags" placeholder="例：送禮, 藏酒, 商務應酬">
         </div>
 
         <!-- Favorite -->
@@ -1524,6 +1645,7 @@ function getFilteredEntries() {
       (e.region || '').toLowerCase().includes(searchQuery) ||
       (e.notes || '').toLowerCase().includes(searchQuery) ||
       (e.tags || '').toLowerCase().includes(searchQuery) ||
+      (e.flavors || '').toLowerCase().includes(searchQuery) ||
       (e.location || '').toLowerCase().includes(searchQuery)
     );
   }
@@ -1696,6 +1818,7 @@ function openDetail(id) {
     ['品飲日期', entry.date],
     ['地點', entry.location],
     ['搭餐', entry.pairing],
+    ['風味', entry.flavors],
     ['標籤', entry.tags],
   ];
 
@@ -1788,12 +1911,66 @@ function toggleFormFav() {
   text.textContent = formFavorite ? '已收藏' : '加入收藏';
 }
 
+// ===== FLAVOR PRESETS =====
+const FLAVOR_PRESETS = {
+  common: ['果香', '花香', '辛香', '甜', '酸', '苦', '單寧重', '清爽'],
+  'Whisky': ['泥煤', '煙燻', '雪莉桶', '波本桶', '蜂蜜', '焦糖', '香草', '柑橘', '海風鹽味', '麥芽', '巧克力', '堅果'],
+  'Red Wine': ['黑莓', '櫻桃', '皮革', '橡木', '黑胡椒', '泥土', '煙草', '李子', '香料', '可可'],
+  'White Wine': ['檸檬', '青蘋果', '梨', '蜜桃', '礦物感', '奶油', '橡木', '熱帶水果', '草本'],
+  'Champagne/Sparkling': ['細緻氣泡', '酵母', '白花', '蘋果', '杏仁', '吐司', '柑橘'],
+  'Sake': ['米香', '花香', '果香', '清爽', '甘口', '辛口', '熟成'],
+  'Gin': ['杜松', '柑橘', '草本', '花香', '辛香', '清新'],
+  'Rum': ['焦糖', '香草', '熱帶水果', '橡木', '辛香'],
+  'Tequila': ['龍舌蘭草本', '柑橘', '胡椒', '焦糖', '橡木'],
+  'Cognac': ['葡萄乾', '橡木', '香草', '花香', '辛香'],
+  'Beer': ['麥芽', '啤酒花', '柑橘', '苦', '焙烤', '果香'],
+  'Cocktail': ['果香', '酸', '甜', '苦', '草本']
+};
+
+let selectedFlavors = new Set();
+
+function renderFlavorChips() {
+  const container = document.getElementById('flavorChips');
+  if (!container) return;
+  const type = document.getElementById('fType').value;
+  const presets = [...FLAVOR_PRESETS.common];
+  if (type && FLAVOR_PRESETS[type]) {
+    FLAVOR_PRESETS[type].forEach(f => { if (!presets.includes(f)) presets.push(f); });
+  }
+  // Also surface any custom flavors already selected so user can de-select
+  selectedFlavors.forEach(f => { if (!presets.includes(f)) presets.push(f); });
+  container.innerHTML = presets.map(f => {
+    const active = selectedFlavors.has(f) ? 'active' : '';
+    return `<span class="flavor-chip ${active}" onclick="toggleFlavorChip('${escHtml(f).replace(/'/g, "\\'")}', this)">${escHtml(f)}</span>`;
+  }).join('');
+}
+
+function toggleFlavorChip(flavor, el) {
+  if (selectedFlavors.has(flavor)) {
+    selectedFlavors.delete(flavor);
+    el.classList.remove('active');
+  } else {
+    selectedFlavors.add(flavor);
+    el.classList.add('active');
+  }
+}
+
+function getFinalFlavors() {
+  // Merge chip selections + custom comma-separated input
+  const custom = (document.getElementById('fFlavors').value || '')
+    .split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+  const all = new Set([...selectedFlavors, ...custom]);
+  return [...all];
+}
+
 function resetForm() {
   document.getElementById('wineForm').reset();
   document.getElementById('editId').value = '';
   formRating = 0;
   formInterest = 0;
   formFavorite = false;
+  selectedFlavors = new Set();
+  renderFlavorChips();
   currentPhotoBase64 = null;
   document.getElementById('photoPreview').innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
   document.getElementById('analyzeBtn').style.display = 'none';
@@ -1837,6 +2014,16 @@ function openEditForm(id) {
   document.getElementById('fLocation').value = entry.location || '';
   document.getElementById('fPairing').value = entry.pairing || '';
   document.getElementById('fTags').value = entry.tags || '';
+
+  // Load flavors: split saved entry.flavors into selectedFlavors set
+  selectedFlavors = new Set();
+  const savedFlavors = entry.flavors || '';
+  if (savedFlavors) {
+    savedFlavors.split(/[,，、]/).map(s => s.trim()).filter(Boolean)
+      .forEach(f => selectedFlavors.add(f));
+  }
+  document.getElementById('fFlavors').value = '';
+  renderFlavorChips();
 
   formRating = entry.rating || 0;
   formInterest = entry.interest || 0;
@@ -1891,6 +2078,7 @@ function handleFormSubmit(e) {
     location: document.getElementById('fLocation').value.trim(),
     pairing: document.getElementById('fPairing').value.trim(),
     tags: document.getElementById('fTags').value.trim(),
+    flavors: getFinalFlavors().join(', '),
     favorite: formFavorite,
     photo: currentPhotoBase64 || '',
     officialPhoto: currentOfficialPhotoUrl || (id ? (entries.find(e2 => e2.id === id)?.officialPhoto || '') : ''),
@@ -2441,6 +2629,7 @@ function applySuggestions(jsonStr) {
   if (s.region) document.getElementById('fRegion').value = s.region;
   if (s.type) document.getElementById('fType').value = s.type;
   if (s.year) document.getElementById('fYear').value = s.year;
+  renderFlavorChips();
   document.getElementById('suggestionBox').style.display = 'none';
   showToast('已套用建議');
 }
@@ -2572,6 +2761,7 @@ function buildAIRecommendationText() {
     if (e.date) meta.push(`品飲: ${e.date}`);
     if (meta.length) out += '   ' + meta.join(' | ') + '\n';
 
+    if (e.flavors) out += `   風味: ${e.flavors}\n`;
     if (e.notes) out += `   感想: ${e.notes}\n`;
     if (e.pairing) out += `   搭餐: ${e.pairing}\n`;
     if (e.tags) out += `   標籤: ${e.tags}\n`;
@@ -2828,6 +3018,120 @@ function renderStats() {
       <span class="chart-label">${getTypeLabel(type)}</span>
       <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${(count/maxCount*100)}%"></div></div>
       <span class="chart-count">${count}</span>
+    </div>
+  `).join('');
+
+  renderRegionTree();
+  renderFlavorChart();
+}
+
+// Parse 'Islay, Scotland' -> { country: 'Scotland', sub: 'Islay' }
+// Also handles single-token like 'France', 'Japan', 'Hong Kong'
+function parseRegion(region) {
+  if (!region) return null;
+  const parts = region.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) {
+    return { country: normalizeCountry(parts[0]), sub: null };
+  }
+  // Last segment is the country, rest is sub-region
+  const country = normalizeCountry(parts[parts.length - 1]);
+  const sub = parts.slice(0, -1).join(', ');
+  return { country, sub };
+}
+
+function normalizeCountry(name) {
+  const n = name.trim();
+  const map = {
+    'usa': 'USA', 'u.s.a.': 'USA', 'us': 'USA', 'united states': 'USA',
+    'uk': 'UK', 'u.k.': 'UK', 'united kingdom': 'UK',
+    'scotland': 'Scotland', 'england': 'England', 'ireland': 'Ireland',
+    'france': 'France', '法國': 'France',
+    'italy': 'Italy', '意大利': 'Italy',
+    'spain': 'Spain', '西班牙': 'Spain',
+    'germany': 'Germany', '德國': 'Germany',
+    'japan': 'Japan', '日本': 'Japan',
+    'taiwan': 'Taiwan', '台灣': 'Taiwan',
+    'china': 'China', '中國': 'China',
+    'australia': 'Australia', '澳洲': 'Australia',
+    'new zealand': 'New Zealand', '紐西蘭': 'New Zealand',
+    'chile': 'Chile', '智利': 'Chile',
+    'argentina': 'Argentina', '阿根廷': 'Argentina',
+    'portugal': 'Portugal', '葡萄牙': 'Portugal',
+    'south africa': 'South Africa', '南非': 'South Africa',
+    'mexico': 'Mexico', '墨西哥': 'Mexico',
+    'cuba': 'Cuba', '古巴': 'Cuba',
+    'canada': 'Canada', '加拿大': 'Canada',
+    'kentucky': 'USA', 'tennessee': 'USA', 'california': 'USA',
+  };
+  return map[n.toLowerCase()] || n;
+}
+
+function renderRegionTree() {
+  const container = document.getElementById('regionTree');
+  if (!container) return;
+  // country -> { count, subs: { subname -> count } }
+  const byCountry = {};
+  entries.forEach(e => {
+    const parsed = parseRegion(e.region);
+    if (!parsed) return;
+    if (!byCountry[parsed.country]) byCountry[parsed.country] = { count: 0, subs: {} };
+    byCountry[parsed.country].count++;
+    if (parsed.sub) {
+      byCountry[parsed.country].subs[parsed.sub] = (byCountry[parsed.country].subs[parsed.sub] || 0) + 1;
+    }
+  });
+  const countries = Object.entries(byCountry).sort((a,b) => b[1].count - a[1].count);
+  if (countries.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px;">尚無產地資料</p>';
+    return;
+  }
+  const max = Math.max(...countries.map(([,v]) => v.count));
+  container.innerHTML = countries.map(([country, data]) => {
+    const subs = Object.entries(data.subs).sort((a,b) => b[1] - a[1]);
+    const hasSubs = subs.length > 0;
+    const subsHtml = hasSubs ? subs.map(([sub, n]) => `
+      <div class="region-sub-row">
+        <span class="dot">•</span>
+        <span>${escHtml(sub)}</span>
+        <span class="region-sub-count">${n}</span>
+      </div>
+    `).join('') : '<div class="region-sub-row" style="color:var(--text-faint);">未標記細分產區</div>';
+    return `
+      <div class="region-country" data-country="${escHtml(country)}">
+        <div class="region-country-header" onclick="this.parentElement.classList.toggle('expanded')">
+          <span class="region-caret">▶</span>
+          <span class="region-country-name">${escHtml(country)}</span>
+          <div class="region-country-bar"><div class="region-country-fill" style="width:${(data.count/max*100)}%"></div></div>
+          <span class="region-country-count">${data.count}</span>
+        </div>
+        <div class="region-subregions">${subsHtml}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderFlavorChart() {
+  const container = document.getElementById('flavorChart');
+  if (!container) return;
+  const counts = {};
+  entries.forEach(e => {
+    if (!e.flavors) return;
+    e.flavors.split(/[,，、]/).map(s => s.trim()).filter(Boolean).forEach(f => {
+      counts[f] = (counts[f] || 0) + 1;
+    });
+  });
+  const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 15);
+  if (sorted.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px;">尚無風味資料（可在新增/編輯時加）</p>';
+    return;
+  }
+  const max = Math.max(...sorted.map(([,n]) => n));
+  container.innerHTML = sorted.map(([flavor, n]) => `
+    <div class="chart-bar-row">
+      <span class="chart-label">${escHtml(flavor)}</span>
+      <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${(n/max*100)}%"></div></div>
+      <span class="chart-count">${n}</span>
     </div>
   `).join('');
 }
