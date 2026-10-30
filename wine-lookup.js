@@ -185,6 +185,29 @@ async function lookupWineByName() {
         throw new Error(`搜尋服務暫時未能使用（${response.status}）。`);
       }
       results = sanitizeLookupResults(await response.json());
+      // One optional producer-focused request. Keep useful third-party results if it fails.
+      if (!results.some(r => r.kind === 'producer' && resultMatchesWine(name, r))) {
+        const joinedName = lookupTokens(name).join('');
+        const producer = PRODUCER_HOSTS.find(host => {
+          const label = host.split('.')[0].replace(/^(the|champagne)/, '').replace(/[^a-z0-9]/g, '');
+          return label.length > 3 && joinedName.includes(label);
+        });
+        if (producer) {
+          try {
+            const officialResponse = await fetch('https://google.serper.dev/search', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json', 'X-API-KEY': apiKey},
+              body: JSON.stringify({q: `${name} ${producer} official tasting notes`, num: 10}),
+              signal: controller.signal
+            });
+            if (officialResponse.ok) {
+              const officialResults = sanitizeLookupResults(await officialResponse.json())
+                .filter(r => r.kind === 'producer' && !results.some(existing => existing.url === r.url));
+              results.push(...officialResults);
+            }
+          } catch (_) { /* The first request still has useful sourced results. */ }
+        }
+      }
       wineLookupCache.set(name.toLowerCase(), results);
     }
     if (!active()) return;
